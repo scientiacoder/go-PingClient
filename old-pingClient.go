@@ -4,14 +4,11 @@ import (
 	//"golang.org/x/net/icmp"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
-	"reflect"
 	"sync"
 	"time"
 
 	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
 )
 
 var (
@@ -19,11 +16,15 @@ var (
 	ipv6Proto = map[string]string{"ip": "ip6:ipv6-icmp", "udp": "udp6"}
 )
 
-// context controls the state of PingClient to stop or done
-type context struct {
+// Context controls the state of PingClient to stop or done
+type Context struct {
 	stop chan bool
 	done chan bool
 	err  chan bool
+}
+
+func NewContext() *Context {
+	return &Context{stop: make(chan bool), done: make(chan bool), err: make(chan bool)}
 }
 
 // PingClient sends/receives ICMP packets
@@ -31,7 +32,7 @@ type PingClient struct {
 	addrs   map[string]*net.IPAddr // key is the string format of ip addr
 	network string                 // "ip" or "udp" refer to ICMP endpoints network
 	mut     *sync.Mutex            // mutex lock
-	ctx     *context               // controls stop or done
+	ctx     *Context               // controls stop or done
 	source  string                 // address source for icmp.ListenPacket
 	hasIpv4 bool                   // has ipv4 in addrs
 	hasIpv6 bool                   // has ipv6 in addrs
@@ -46,7 +47,7 @@ func NewPingClient() *PingClient {
 		addrs:   make(map[string]*net.IPAddr),
 		network: "ip",
 		mut:     &sync.Mutex{},
-		ctx:     &context{stop: make(chan bool), done: make(chan bool), err: make(chan bool)},
+		ctx:     NewContext(),
 		debug:   true,
 	}
 }
@@ -69,6 +70,7 @@ func (p *PingClient) run(once bool) {
 
 }
 
+/*
 func (p *PingClient) sendICMPpackets(conn *icmp.PacketConn) {
 	var typ icmp.Type
 	var bod icmp.MessageBody
@@ -95,6 +97,7 @@ func (p *PingClient) sendICMPpackets(conn *icmp.PacketConn) {
 
 	}
 }
+*/
 
 // For non-privileged datagram-oriented ICMP endpoints
 // Examples:
@@ -124,10 +127,10 @@ func (p *PingClient) listen(netProto string, source string) *icmp.PacketConn {
 	return conn
 }
 
-// AddIP adds string like ip address "192.168.0.1" or "2404:6800:4006:803::2006"
+// addIP adds string like ip address "192.168.0.1" or "2404:6800:4006:803::2006"
 // to PingClient
 // Todo: check ipv6 zone support
-func (p *PingClient) AddIP(s string) error {
+func (p *PingClient) addIP(s string) error {
 	p.mut.Lock()
 	defer p.mut.Unlock()
 	ipaddr := parseIP(s)
@@ -162,21 +165,12 @@ func (p *PingClient) RemoveIP(s string) error {
 // get IP addr of given string address using DNS lookup
 // e.g. getIP("github.com")
 // return	[]IP(4-byte Ipv4 and 16-byte Ipv6, Ipv4 could also be 16-byte)
-func getIP(s string) ([]net.IP, error) {
-	ips, err := net.LookupIP(s)
-	if err == nil {
-		fmt.Println(len(ips))
-		for k, ip := range ips {
-			fmt.Println(k, ip)
-			fmt.Printf("%t %d\n", ip, len(ip))
-			fmt.Println(ip.To4())
-			fmt.Println(reflect.TypeOf(ip))
-			fmt.Println(isIpv4(ip))
-			fmt.Println(isIpv6(ip))
-			fmt.Println(ip.String())
-		}
+func getIP(network string, url string) (*net.IPAddr, error) {
+	ips, err := net.ResolveIPAddr(network, url)
+	if err != nil {
+		return nil, err
 	}
-	return ips, err
+	return ips, nil
 }
 
 // copy from fastping
@@ -231,11 +225,6 @@ func (p *PingClient) debugln(args ...interface{}) {
 var p = fmt.Println
 
 func main() {
-	getIP("github.com")
-	iprecords, _ := net.LookupIP("mojotv.cn")
-	for _, ip := range iprecords {
-		fmt.Println(ip)
-	}
 
 	fmt.Println("-----")
 	ip6 := parseIP("2404:6800:4006:803::2006")
@@ -249,4 +238,6 @@ func main() {
 	delete(m, "a")
 	delete(m, "b")
 	p(m["a"])
+
+	fmt.Println(net.ResolveIPAddr("ip", "googlecom"))
 }
