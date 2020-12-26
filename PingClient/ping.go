@@ -103,6 +103,31 @@ func New(addr string) *PingClient {
 	}
 }
 
+func NewWithParams(interval time.Duration, timeout time.Duration, ips []*net.IPAddr,
+	urls []string, num int, ipToURL map[*net.IPAddr]string) *PingClient {
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return &PingClient{
+		Count:      0,
+		Num:        num,
+		Interval:   interval,
+		RecordRtts: true,
+		Size:       timeSliceLength + trackerLength,
+		Timeout:    timeout,
+		Tracker:    r.Int63n(math.MaxInt64),
+		ips:        ips,
+		urls:       urls,
+		ipToURL:    ipToURL,
+		addr:       "",
+		done:       make(chan bool),
+		id:         r.Intn(math.MaxInt16),
+		ipaddr:     nil,
+		ipv4:       false,
+		network:    "ip",
+		protocol:   "udp",
+	}
+}
+
 // Use simply resolves xx declared but not used issue
 // for debug
 func Use(args ...interface{}) {
@@ -117,10 +142,9 @@ func ParsePingClient(pingClientMap map[interface{}]interface{}) (*PingClient, er
 	timeout := 5 * time.Second
 	ips := make([]*net.IPAddr, 0)
 	urls := make([]string, 0)
+	num := 5
 	ipToURL := make(map[*net.IPAddr]string)
 	privileged := false
-
-	Use(interval, timeout, ips, urls, privileged, ipToURL)
 
 	for key := range pingClientMap {
 		k := key.(string)
@@ -152,10 +176,19 @@ func ParsePingClient(pingClientMap map[interface{}]interface{}) (*PingClient, er
 			ips = append(ips, ipaddr)
 			// construct inverted map
 			ipToURL[ipaddr] = url
+		case "num":
+			n := pingClientMap[stringKey].(int)
+			num = n
+		case "privileged":
+			p := pingClientMap[stringKey].(bool)
+			privileged = p
 		}
 	}
 
-	//
+	pingClient := NewWithParams(interval, timeout, ips, urls, num, ipToURL)
+	pingClient.SetPrivileged(privileged)
+
+	return pingClient, nil
 
 }
 
@@ -178,6 +211,9 @@ type PingClient struct {
 	// packets. If this option is not specified, PingClient will operate until
 	// interrupted.
 	Count int
+
+	// number of packets send per ip(or url) address
+	Num int
 
 	// Debug runs in debug mode
 	Debug bool
@@ -220,8 +256,16 @@ type PingClient struct {
 	addr   string
 	// list of destination ping ips
 	ips []*net.IPAddr
+
 	// list of destination ping urls
 	urls []string
+
+	ipToURL map[*net.IPAddr]string
+
+	// has Ipv4 in ips
+	hasIPv4 bool
+	// has Ipv6 in ips
+	hasIPv6 bool
 
 	ipv4     bool
 	id       int
@@ -380,6 +424,8 @@ func (p *PingClient) Privileged() bool {
 func (p *PingClient) Run() error {
 	var conn *icmp.PacketConn
 	var err error
+	p.ipVersionCheck()
+
 	if p.ipaddr == nil {
 		err = p.Resolve()
 	}
@@ -705,6 +751,26 @@ func bytesToTime(b []byte) time.Time {
 	return time.Unix(nsec/1000000000, nsec%1000000000)
 }
 
+/* * * * * * * * * * * * * * * * * * * * * * *
+  _____ _____    _    _ _   _ _
+ |_   _|  __ \  | |  | | | (_) |
+   | | | |__) | | |  | | |_ _| |___
+   | | |  ___/  | |  | | __| | / __|
+  _| |_| |      | |__| | |_| | \__ \
+ |_____|_|       \____/ \__|_|_|___/
+
+* * * * * * * * * * * * * * * * * * * * * * */
+
+func (p *PingClient) ipVersionCheck() {
+	for _, ipAddr := range p.ips {
+		if isIPv4(ipAddr.IP) {
+			p.hasIPv4 = true
+		} else if isIpv6(ipAddr.IP) {
+			p.hasIPv6 = true
+		}
+	}
+}
+
 // parse an stirng s to net.IP
 // returns nil if s is not a valid ip(v4 or v6) address
 func parseIP(s string) net.IP {
@@ -724,6 +790,10 @@ func parseURL(network string, url string) (*net.IPAddr, error) {
 
 func isIPv4(ip net.IP) bool {
 	return len(ip.To4()) == net.IPv4len
+}
+
+func isIpv6(ip net.IP) bool {
+	return len(ip.To16()) == net.IPv6len
 }
 
 func timeToBytes(t time.Time) []byte {
