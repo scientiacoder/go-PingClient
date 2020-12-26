@@ -2,20 +2,20 @@
 //
 // Here is a very simple example that sends and receives three packets:
 //
-//	pinger, err := ping.NewPinger("www.google.com")
+//	PingClient, err := ping.NewPingClient("www.google.com")
 //	if err != nil {
 //		panic(err)
 //	}
-//	pinger.Count = 3
-//	err = pinger.Run() // blocks until finished
+//	PingClient.Count = 3
+//	err = PingClient.Run() // blocks until finished
 //	if err != nil {
 //		panic(err)
 //	}
-//	stats := pinger.Statistics() // get send/receive/rtt stats
+//	stats := PingClient.Statistics() // get send/receive/rtt stats
 //
 // Here is an example that emulates the traditional UNIX ping command:
 //
-//	pinger, err := ping.NewPinger("www.google.com")
+//	PingClient, err := ping.NewPingClient("www.google.com")
 //	if err != nil {
 //		panic(err)
 //	}
@@ -24,22 +24,22 @@
 //	signal.Notify(c, os.Interrupt)
 //	go func() {
 //		for _ = range c {
-//			pinger.Stop()
+//			PingClient.Stop()
 //		}
 //	}()
-//	pinger.OnRecv = func(pkt *ping.Packet) {
+//	PingClient.OnRecv = func(pkt *ping.Packet) {
 //		fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v\n",
 //			pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt)
 //	}
-//	pinger.OnFinish = func(stats *ping.Statistics) {
+//	PingClient.OnFinish = func(stats *ping.Statistics) {
 //		fmt.Printf("\n--- %s ping statistics ---\n", stats.Addr)
 //		fmt.Printf("%d packets transmitted, %d packets received, %v%% packet loss\n",
 //			stats.PacketsSent, stats.PacketsRecv, stats.PacketLoss)
 //		fmt.Printf("round-trip min/avg/max/stddev = %v/%v/%v/%v\n",
 //			stats.MinRtt, stats.AvgRtt, stats.MaxRtt, stats.StdDevRtt)
 //	}
-//	fmt.Printf("PING %s (%s):\n", pinger.Addr(), pinger.IPAddr())
-//	err = pinger.Run()
+//	fmt.Printf("PING %s (%s):\n", PingClient.Addr(), PingClient.IPAddr())
+//	err = PingClient.Run()
 //	if err != nil {
 //		panic(err)
 //	}
@@ -61,6 +61,7 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -82,35 +83,90 @@ var (
 	ipv6Proto = map[string]string{"icmp": "ip6:ipv6-icmp", "udp": "udp6"}
 )
 
-// New returns a new Pinger struct pointer.
-func New(addr string) *Pinger {
+// New returns a new PingClient struct pointer.
+func New(addr string) *PingClient {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return &Pinger{
-		Count:      -1,
+	return &PingClient{
+		Count:      0,
 		Interval:   time.Second,
 		RecordRtts: true,
 		Size:       timeSliceLength + trackerLength,
-		Timeout:    time.Second * 100000,
+		Timeout:    time.Second * 5,
 		Tracker:    r.Int63n(math.MaxInt64),
-
-		addr:     addr,
-		done:     make(chan bool),
-		id:       r.Intn(math.MaxInt16),
-		ipaddr:   nil,
-		ipv4:     false,
-		network:  "ip",
-		protocol: "udp",
+		addr:       addr,
+		done:       make(chan bool),
+		id:         r.Intn(math.MaxInt16),
+		ipaddr:     nil,
+		ipv4:       false,
+		network:    "ip",
+		protocol:   "udp",
 	}
 }
 
-// NewPinger returns a new Pinger and resolves the address.
-func NewPinger(addr string) (*Pinger, error) {
+// Use simply resolves xx declared but not used issue
+// for debug
+func Use(args ...interface{}) {
+	for _, val := range args {
+		_ = val
+	}
+}
+
+// ParsePingClient parses PingClient config yaml file and returns instance of PingClient
+func ParsePingClient(pingClientMap map[interface{}]interface{}) (*PingClient, error) {
+	interval := time.Second
+	timeout := 5 * time.Second
+	ips := make([]*net.IPAddr, 0)
+	urls := make([]string, 0)
+	ipToURL := make(map[*net.IPAddr]string)
+	privileged := false
+
+	Use(interval, timeout, ips, urls, privileged, ipToURL)
+
+	for key := range pingClientMap {
+		k := key.(string)
+		stringKey := key.(string)
+
+		switch k = strings.ToLower(strings.TrimSpace(k)); k {
+		case "interval":
+			intervalInt := pingClientMap[stringKey].(int)
+			interval = time.Duration(intervalInt) * time.Millisecond
+		case "timeout":
+			timeoutInt := pingClientMap[stringKey].(int)
+			timeout = time.Duration(timeoutInt) * time.Millisecond
+		case "ips":
+			ipStr := pingClientMap[stringKey].(string)
+			ipStrList := strings.Split(ipStr, " ")
+			var ip net.IP
+			for _, v := range ipStrList {
+				if ip = parseIP(v); ip == nil {
+					return nil, fmt.Errorf("Error ParsePingClient(): %s should be in IP format x.x.x.x", v)
+				}
+				ips = append(ips, &net.IPAddr{IP: ip})
+			}
+		case "urls":
+			url := pingClientMap[stringKey].(string)
+			ipaddr, err := parseURL("ip", url)
+			if err != nil {
+				return nil, fmt.Errorf("Error ParsePingClient(): can not resolve the IP address of url %s", url)
+			}
+			ips = append(ips, ipaddr)
+			// construct inverted map
+			ipToURL[ipaddr] = url
+		}
+	}
+
+	//
+
+}
+
+// NewPingClient returns a new PingClient and resolves the address.
+func NewPingClient(addr string) (*PingClient, error) {
 	p := New(addr)
 	return p, p.Resolve()
 }
 
-// Pinger represents a packet sender/receiver.
-type Pinger struct {
+// PingClient represents a packet sender/receiver.
+type PingClient struct {
 	// Interval is the wait time between each packet send. Default is 1s.
 	Interval time.Duration
 
@@ -118,8 +174,8 @@ type Pinger struct {
 	// packets have been received.
 	Timeout time.Duration
 
-	// Count tells pinger to stop after sending (and receiving) Count echo
-	// packets. If this option is not specified, pinger will operate until
+	// Count tells PingClient to stop after sending (and receiving) Count echo
+	// packets. If this option is not specified, PingClient will operate until
 	// interrupted.
 	Count int
 
@@ -139,13 +195,13 @@ type Pinger struct {
 	// rtts is all of the Rtts
 	rtts []time.Duration
 
-	// OnSend is called when Pinger sends a packet
+	// OnSend is called when PingClient sends a packet
 	OnSend func(*Packet)
 
-	// OnRecv is called when Pinger receives and processes a packet
+	// OnRecv is called when PingClient receives and processes a packet
 	OnRecv func(*Packet)
 
-	// OnFinish is called when Pinger exits
+	// OnFinish is called when PingClient exits
 	OnFinish func(*Statistics)
 
 	// Size of packet being sent
@@ -162,6 +218,10 @@ type Pinger struct {
 
 	ipaddr *net.IPAddr
 	addr   string
+	// list of destination ping ips
+	ips []*net.IPAddr
+	// list of destination ping urls
+	urls []string
 
 	ipv4     bool
 	id       int
@@ -200,7 +260,7 @@ type Packet struct {
 }
 
 // Statistics represent the stats of a currently running or finished
-// pinger operation.
+// PingClient operation.
 type Statistics struct {
 	// PacketsRecv is the number of packets received.
 	PacketsRecv int
@@ -217,25 +277,25 @@ type Statistics struct {
 	// Addr is the string address of the host being pinged.
 	Addr string
 
-	// Rtts is all of the round-trip times sent via this pinger.
+	// Rtts is all of the round-trip times sent via this PingClient.
 	Rtts []time.Duration
 
-	// MinRtt is the minimum round-trip time sent via this pinger.
+	// MinRtt is the minimum round-trip time sent via this PingClient.
 	MinRtt time.Duration
 
-	// MaxRtt is the maximum round-trip time sent via this pinger.
+	// MaxRtt is the maximum round-trip time sent via this PingClient.
 	MaxRtt time.Duration
 
-	// AvgRtt is the average round-trip time sent via this pinger.
+	// AvgRtt is the average round-trip time sent via this PingClient.
 	AvgRtt time.Duration
 
 	// StdDevRtt is the standard deviation of the round-trip times sent via
-	// this pinger.
+	// this PingClient.
 	StdDevRtt time.Duration
 }
 
 // SetIPAddr sets the ip address of the target host.
-func (p *Pinger) SetIPAddr(ipaddr *net.IPAddr) {
+func (p *PingClient) SetIPAddr(ipaddr *net.IPAddr) {
 	p.ipv4 = isIPv4(ipaddr.IP)
 
 	p.ipaddr = ipaddr
@@ -243,12 +303,12 @@ func (p *Pinger) SetIPAddr(ipaddr *net.IPAddr) {
 }
 
 // IPAddr returns the ip address of the target host.
-func (p *Pinger) IPAddr() *net.IPAddr {
+func (p *PingClient) IPAddr() *net.IPAddr {
 	return p.ipaddr
 }
 
-// Resolve does the DNS lookup for the Pinger address and sets IP protocol.
-func (p *Pinger) Resolve() error {
+// Resolve does the DNS lookup for the PingClient address and sets IP protocol.
+func (p *PingClient) Resolve() error {
 	if len(p.addr) == 0 {
 		return errors.New("addr cannot be empty")
 	}
@@ -266,7 +326,7 @@ func (p *Pinger) Resolve() error {
 
 // SetAddr resolves and sets the ip address of the target host, addr can be a
 // DNS name like "www.google.com" or IP like "127.0.0.1".
-func (p *Pinger) SetAddr(addr string) error {
+func (p *PingClient) SetAddr(addr string) error {
 	oldAddr := p.addr
 	p.addr = addr
 	err := p.Resolve()
@@ -278,7 +338,7 @@ func (p *Pinger) SetAddr(addr string) error {
 }
 
 // Addr returns the string ip address of the target host.
-func (p *Pinger) Addr() string {
+func (p *PingClient) Addr() string {
 	return p.addr
 }
 
@@ -286,7 +346,7 @@ func (p *Pinger) Addr() string {
 // * "ip" will automatically select IPv4 or IPv6.
 // * "ip4" will select IPv4.
 // * "ip6" will select IPv6.
-func (p *Pinger) SetNetwork(n string) {
+func (p *PingClient) SetNetwork(n string) {
 	switch n {
 	case "ip4":
 		p.network = "ip4"
@@ -297,11 +357,11 @@ func (p *Pinger) SetNetwork(n string) {
 	}
 }
 
-// SetPrivileged sets the type of ping pinger will send.
-// false means pinger will send an "unprivileged" UDP ping.
-// true means pinger will send a "privileged" raw ICMP ping.
+// SetPrivileged sets the type of ping PingClient will send.
+// false means PingClient will send an "unprivileged" UDP ping.
+// true means PingClient will send a "privileged" raw ICMP ping.
 // NOTE: setting to true requires that it be run with super-user privileges.
-func (p *Pinger) SetPrivileged(privileged bool) {
+func (p *PingClient) SetPrivileged(privileged bool) {
 	if privileged {
 		p.protocol = "icmp"
 	} else {
@@ -309,15 +369,15 @@ func (p *Pinger) SetPrivileged(privileged bool) {
 	}
 }
 
-// Privileged returns whether pinger is running in privileged mode.
-func (p *Pinger) Privileged() bool {
+// Privileged returns whether PingClient is running in privileged mode.
+func (p *PingClient) Privileged() bool {
 	return p.protocol == "icmp"
 }
 
-// Run runs the pinger. This is a blocking function that will exit when it's
+// Run runs the PingClient. This is a blocking function that will exit when it's
 // done. If Count or Interval are not specified, it will run continuously until
 // it is interrupted.
-func (p *Pinger) Run() error {
+func (p *PingClient) Run() error {
 	var conn *icmp.PacketConn
 	var err error
 	if p.ipaddr == nil {
@@ -394,11 +454,11 @@ func (p *Pinger) Run() error {
 	}
 }
 
-func (p *Pinger) Stop() {
+func (p *PingClient) Stop() {
 	close(p.done)
 }
 
-func (p *Pinger) finish() {
+func (p *PingClient) finish() {
 	handler := p.OnFinish
 	if handler != nil {
 		s := p.Statistics()
@@ -406,10 +466,10 @@ func (p *Pinger) finish() {
 	}
 }
 
-// Statistics returns the statistics of the pinger. This can be run while the
-// pinger is running or after it is finished. OnFinish calls this function to
+// Statistics returns the statistics of the PingClient. This can be run while the
+// PingClient is running or after it is finished. OnFinish calls this function to
 // get it's finished statistics.
-func (p *Pinger) Statistics() *Statistics {
+func (p *PingClient) Statistics() *Statistics {
 	loss := float64(p.PacketsSent-p.PacketsRecv) / float64(p.PacketsSent) * 100
 	var min, max, total time.Duration
 	if len(p.rtts) > 0 {
@@ -447,7 +507,7 @@ func (p *Pinger) Statistics() *Statistics {
 	return &s
 }
 
-func (p *Pinger) recvICMP(
+func (p *PingClient) recvICMP(
 	conn *icmp.PacketConn,
 	recv chan<- *packet,
 	wg *sync.WaitGroup,
@@ -498,7 +558,7 @@ func (p *Pinger) recvICMP(
 	}
 }
 
-func (p *Pinger) processPacket(recv *packet) error {
+func (p *PingClient) processPacket(recv *packet) error {
 	receivedAt := time.Now()
 	var proto int
 	if p.ipv4 {
@@ -566,7 +626,7 @@ func (p *Pinger) processPacket(recv *packet) error {
 	return nil
 }
 
-func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
+func (p *PingClient) sendICMP(conn *icmp.PacketConn) error {
 	var typ icmp.Type
 	if p.ipv4 {
 		typ = ipv4.ICMPTypeEcho
@@ -628,7 +688,7 @@ func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
 	return nil
 }
 
-func (p *Pinger) listen(netProto string) (*icmp.PacketConn, error) {
+func (p *PingClient) listen(netProto string) (*icmp.PacketConn, error) {
 	conn, err := icmp.ListenPacket(netProto, p.Source)
 	if err != nil {
 		close(p.done)
@@ -643,6 +703,23 @@ func bytesToTime(b []byte) time.Time {
 		nsec += int64(b[i]) << ((7 - i) * 8)
 	}
 	return time.Unix(nsec/1000000000, nsec%1000000000)
+}
+
+// parse an stirng s to net.IP
+// returns nil if s is not a valid ip(v4 or v6) address
+func parseIP(s string) net.IP {
+	return net.ParseIP(s)
+}
+
+// get IP addr of given string address using DNS lookup
+// e.g. getIP("github.com")
+// return	[]IP(4-byte Ipv4 and 16-byte Ipv6, Ipv4 could also be 16-byte)
+func parseURL(network string, url string) (*net.IPAddr, error) {
+	ips, err := net.ResolveIPAddr(network, url)
+	if err != nil {
+		return nil, err
+	}
+	return ips, nil
 }
 
 func isIPv4(ip net.IP) bool {
