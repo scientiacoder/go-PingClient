@@ -108,23 +108,26 @@ func NewWithParams(interval time.Duration, timeout time.Duration, ips []*net.IPA
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return &PingClient{
-		Count:      0,
-		Num:        num,
-		Interval:   interval,
-		RecordRtts: true,
-		Size:       timeSliceLength + trackerLength,
-		Timeout:    timeout,
-		Tracker:    r.Int63n(math.MaxInt64),
-		ips:        ips,
-		urls:       urls,
-		ipToURL:    ipToURL,
-		addr:       "",
-		done:       make(chan bool),
-		id:         r.Intn(math.MaxInt16),
-		ipaddr:     nil,
-		ipv4:       false,
-		network:    "ip",
-		protocol:   "udp",
+		Count:       0,
+		Num:         num,
+		Interval:    interval,
+		RecordRtts:  true,
+		Size:        timeSliceLength + trackerLength,
+		Timeout:     timeout,
+		Tracker:     r.Int63n(math.MaxInt64),
+		packetsSent: make(map[*net.IPAddr]int),
+		packetsRecv: make(map[*net.IPAddr]int),
+		rtt:         make(map[*net.IPAddr][]time.Duration),
+		ips:         ips,
+		urls:        urls,
+		ipToURL:     ipToURL,
+		addr:        "",
+		done:        make(chan bool),
+		id:          r.Intn(math.MaxInt16),
+		ipaddr:      nil,
+		ipv4:        false,
+		network:     "ip",
+		protocol:    "udp",
 	}
 }
 
@@ -168,14 +171,17 @@ func ParsePingClient(pingClientMap map[interface{}]interface{}) (*PingClient, er
 				ips = append(ips, &net.IPAddr{IP: ip})
 			}
 		case "urls":
-			url := pingClientMap[stringKey].(string)
-			ipaddr, err := parseURL("ip", url)
-			if err != nil {
-				return nil, fmt.Errorf("Error ParsePingClient(): can not resolve the IP address of url %s", url)
+			urlStr := pingClientMap[stringKey].(string)
+			urlList := strings.Split(urlStr, " ")
+			for _, url := range urlList {
+				ipaddr, err := parseURL("ip", url)
+				if err != nil {
+					return nil, fmt.Errorf("Error ParsePingClient(): can not resolve the IP address of url %s", url)
+				}
+				ips = append(ips, ipaddr)
+				// construct inverted map
+				ipToURL[ipaddr] = url
 			}
-			ips = append(ips, ipaddr)
-			// construct inverted map
-			ipToURL[ipaddr] = url
 		case "num":
 			n := pingClientMap[stringKey].(int)
 			num = n
@@ -221,6 +227,12 @@ type PingClient struct {
 	// Number of packets sent
 	PacketsSent int
 
+	packetsSent map[*net.IPAddr]int
+
+	packetsRecv map[*net.IPAddr]int
+
+	rtt map[*net.IPAddr][]time.Duration
+
 	// Number of packets received
 	PacketsRecv int
 
@@ -230,9 +242,6 @@ type PingClient struct {
 
 	// rtts is all of the Rtts
 	rtts []time.Duration
-
-	// OnSend is called when PingClient sends a packet
-	OnSend func(*Packet)
 
 	// OnRecv is called when PingClient receives and processes a packet
 	OnRecv func(*Packet)
@@ -422,42 +431,49 @@ func (p *PingClient) Privileged() bool {
 // done. If Count or Interval are not specified, it will run continuously until
 // it is interrupted.
 func (p *PingClient) Run() error {
-	var conn *icmp.PacketConn
+	var conn, conn6 *icmp.PacketConn
 	var err error
 	p.ipVersionCheck()
+	p.initPacketsConfig()
 
-	if p.ipaddr == nil {
-		err = p.Resolve()
-	}
-	if err != nil {
-		return err
-	}
-	if p.ipv4 {
+	if p.hasIPv4 {
 		if conn, err = p.listen(ipv4Proto[p.protocol]); err != nil {
 			return err
 		}
 		if err = conn.IPv4PacketConn().SetControlMessage(ipv4.FlagTTL, true); runtime.GOOS != "windows" && err != nil {
 			return err
 		}
-	} else {
-		if conn, err = p.listen(ipv6Proto[p.protocol]); err != nil {
+		defer conn.Close()
+	}
+
+	if p.hasIPv6 {
+		if conn6, err = p.listen(ipv6Proto[p.protocol]); err != nil {
 			return err
 		}
 		if err = conn.IPv6PacketConn().SetControlMessage(ipv6.FlagHopLimit, true); runtime.GOOS != "windows" && err != nil {
 			return err
 		}
+		defer conn6.Close()
 	}
-	defer conn.Close()
+
 	defer p.finish()
 
 	var wg sync.WaitGroup
 	recv := make(chan *packet, 5)
 	defer close(recv)
-	wg.Add(1)
-	//nolint:errcheck
-	go p.recvICMP(conn, recv, &wg)
+	if conn != nil {
+		wg.Add(1)
+		//nolint:errcheck
+		go p.recvICMP(conn, recv, &wg)
+	}
 
-	err = p.sendICMP(conn)
+	if conn6 != nil {
+		wg.Add(1)
+		//nolint:errcheck
+		go p.recvICMP(conn6, recv, &wg)
+	}
+
+	err = p.sendICMP(conn, conn6)
 	if err != nil {
 		return err
 	}
@@ -480,7 +496,7 @@ func (p *PingClient) Run() error {
 			if p.Count > 0 && p.PacketsSent >= p.Count {
 				continue
 			}
-			err = p.sendICMP(conn)
+			err = p.sendICMP(conn, conn6)
 			if err != nil {
 				// FIXME: this logs as FATAL but continues
 				fmt.Println("FATAL: ", err.Error())
@@ -570,19 +586,22 @@ func (p *PingClient) recvICMP(
 			}
 			var n, ttl int
 			var err error
-			if p.ipv4 {
+			if conn.IPv4PacketConn() != nil {
 				var cm *ipv4.ControlMessage
 				n, cm, _, err = conn.IPv4PacketConn().ReadFrom(bytes)
 				if cm != nil {
 					ttl = cm.TTL
 				}
-			} else {
+			} else if conn.IPv6PacketConn() != nil {
 				var cm *ipv6.ControlMessage
 				n, cm, _, err = conn.IPv6PacketConn().ReadFrom(bytes)
 				if cm != nil {
 					ttl = cm.HopLimit
 				}
+			} else {
+				return nil
 			}
+
 			if err != nil {
 				if neterr, ok := err.(*net.OpError); ok {
 					if neterr.Timeout() {
@@ -672,64 +691,67 @@ func (p *PingClient) processPacket(recv *packet) error {
 	return nil
 }
 
-func (p *PingClient) sendICMP(conn *icmp.PacketConn) error {
-	var typ icmp.Type
-	if p.ipv4 {
-		typ = ipv4.ICMPTypeEcho
-	} else {
-		typ = ipv6.ICMPTypeEchoRequest
-	}
+func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
+	p.id = rand.Intn(0xffff)
+	p.sequence = rand.Intn(0xffff)
+	wg := new(sync.WaitGroup)
+	for key, addr := range p.ips {
+		var cn *icmp.PacketConn
+		var typ icmp.Type
+		Use(key, cn)
+		if isIPv4(addr.IP) {
+			cn = conn
+			typ = ipv4.ICMPTypeEcho
+		} else if isIpv6(addr.IP) {
+			cn = conn6
+			typ = ipv6.ICMPTypeEchoRequest
+		} else {
+			continue
+		}
 
-	var dst net.Addr = p.ipaddr
-	if p.protocol == "udp" {
-		dst = &net.UDPAddr{IP: p.ipaddr.IP, Zone: p.ipaddr.Zone}
-	}
+		var dst net.Addr = addr
+		if p.protocol == "udp" {
+			dst = &net.UDPAddr{IP: addr.IP, Zone: addr.Zone}
+		}
 
-	t := append(timeToBytes(time.Now()), intToBytes(p.Tracker)...)
-	if remainSize := p.Size - timeSliceLength - trackerLength; remainSize > 0 {
-		t = append(t, bytes.Repeat([]byte{1}, remainSize)...)
-	}
+		t := append(timeToBytes(time.Now()), intToBytes(p.Tracker)...)
+		if remainSize := p.Size - timeSliceLength - trackerLength; remainSize > 0 {
+			t = append(t, bytes.Repeat([]byte{1}, remainSize)...)
+		}
 
-	body := &icmp.Echo{
-		ID:   p.id,
-		Seq:  p.sequence,
-		Data: t,
-	}
+		body := &icmp.Echo{
+			ID:   p.id,
+			Seq:  p.sequence,
+			Data: t,
+		}
 
-	msg := &icmp.Message{
-		Type: typ,
-		Code: 0,
-		Body: body,
-	}
+		msg := &icmp.Message{
+			Type: typ,
+			Code: 0,
+			Body: body,
+		}
 
-	msgBytes, err := msg.Marshal(nil)
-	if err != nil {
-		return err
-	}
-
-	for {
-		if _, err := conn.WriteTo(msgBytes, dst); err != nil {
-			if neterr, ok := err.(*net.OpError); ok {
-				if neterr.Err == syscall.ENOBUFS {
-					continue
+		msgBytes, err := msg.Marshal(nil)
+		if err != nil {
+			return err
+		}
+		wg.Add(1)
+		go func(conn *icmp.PacketConn, dst net.Addr, b []byte) {
+			for {
+				if _, err := conn.WriteTo(b, dst); err != nil {
+					if neterr, ok := err.(*net.OpError); ok {
+						if neterr.Err == syscall.ENOBUFS {
+							continue
+						}
+					}
 				}
+				p.packetsSent[addr]++
+				break
 			}
-		}
-		handler := p.OnSend
-		if handler != nil {
-			outPkt := &Packet{
-				Nbytes: len(msgBytes),
-				IPAddr: p.ipaddr,
-				Addr:   p.addr,
-				Seq:    p.sequence,
-			}
-			handler(outPkt)
-		}
-
-		p.PacketsSent++
-		p.sequence++
-		break
+			wg.Done()
+		}(cn, dst, msgBytes)
 	}
+	wg.Wait()
 
 	return nil
 }
@@ -741,6 +763,14 @@ func (p *PingClient) listen(netProto string) (*icmp.PacketConn, error) {
 		return nil, err
 	}
 	return conn, nil
+}
+
+func (p *PingClient) initPacketsConfig() {
+	for _, addr := range p.ips {
+		p.packetsSent[addr] = 0
+		p.packetsRecv[addr] = 0
+		p.rtt[addr] = make([]time.Duration, 0)
+	}
 }
 
 func bytesToTime(b []byte) time.Time {
