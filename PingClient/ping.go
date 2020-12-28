@@ -11,7 +11,7 @@
 //	if err != nil {
 //		panic(err)
 //	}
-//	stats := PingClient.Statistics() // get send/receive/rtt stats
+//	stats := PingClient.Statistics() // get send/receive/rtts stats
 //
 // Here is an example that emulates the traditional UNIX ping command:
 //
@@ -31,7 +31,7 @@
 //		fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v\n",
 //			pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt)
 //	}
-//	PingClient.OnFinish = func(stats *ping.Statistics) {
+//	PingClient.OnFinish = func(stats []*ping.Statistics) {
 //		fmt.Printf("\n--- %s ping statistics ---\n", stats.Addr)
 //		fmt.Printf("%d packets transmitted, %d packets received, %v%% packet loss\n",
 //			stats.PacketsSent, stats.PacketsRecv, stats.PacketLoss)
@@ -115,9 +115,9 @@ func NewWithParams(interval time.Duration, timeout time.Duration, ips []*net.IPA
 		Size:        timeSliceLength + trackerLength,
 		Timeout:     timeout,
 		Tracker:     r.Int63n(math.MaxInt64),
-		packetsSent: make(map[*net.IPAddr]int),
-		packetsRecv: make(map[*net.IPAddr]int),
-		rtt:         make(map[*net.IPAddr][]time.Duration),
+		PacketsSent: make(map[string]int),
+		PacketsRecv: make(map[string]int),
+		rtts:        make(map[string][]time.Duration),
 		ips:         ips,
 		urls:        urls,
 		ipToURL:     ipToURL,
@@ -225,29 +225,23 @@ type PingClient struct {
 	Debug bool
 
 	// Number of packets sent
-	PacketsSent int
-
-	packetsSent map[*net.IPAddr]int
-
-	packetsRecv map[*net.IPAddr]int
-
-	rtt map[*net.IPAddr][]time.Duration
+	PacketsSent map[string]int
 
 	// Number of packets received
-	PacketsRecv int
+	PacketsRecv map[string]int
+
+	// Round trip time duration of all the packets
+	rtts map[string][]time.Duration
 
 	// If true, keep a record of rtts of all received packets.
 	// Set to false to avoid memory bloat for long running pings.
 	RecordRtts bool
 
-	// rtts is all of the Rtts
-	rtts []time.Duration
-
 	// OnRecv is called when PingClient receives and processes a packet
 	OnRecv func(*Packet)
 
 	// OnFinish is called when PingClient exits
-	OnFinish func(*Statistics)
+	OnFinish func([]*Statistics)
 
 	// Size of packet being sent
 	Size int
@@ -288,6 +282,7 @@ type PingClient struct {
 type packet struct {
 	bytes  []byte
 	nbytes int
+	src    net.Addr
 	ttl    int
 }
 
@@ -299,8 +294,8 @@ type Packet struct {
 	// IPAddr is the address of the host being pinged.
 	IPAddr *net.IPAddr
 
-	// Addr is the string address of the host being pinged.
-	Addr string
+	// IP address in string format e.g "142.250.71.78"
+	IP string
 
 	// NBytes is the number of bytes in the message.
 	Nbytes int
@@ -326,9 +321,6 @@ type Statistics struct {
 
 	// IPAddr is the address of the host being pinged.
 	IPAddr *net.IPAddr
-
-	// Addr is the string address of the host being pinged.
-	Addr string
 
 	// Rtts is all of the round-trip times sent via this PingClient.
 	Rtts []time.Duration
@@ -488,12 +480,8 @@ func (p *PingClient) Run() error {
 		case <-p.done:
 			wg.Wait()
 			return nil
-		case <-timeout.C:
-			close(p.done)
-			wg.Wait()
-			return nil
 		case <-interval.C:
-			if p.Count > 0 && p.PacketsSent >= p.Count {
+			if p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
 				continue
 			}
 			err = p.sendICMP(conn, conn6)
@@ -508,7 +496,9 @@ func (p *PingClient) Run() error {
 				fmt.Println("FATAL: ", err.Error())
 			}
 		}
-		if p.Count > 0 && p.PacketsRecv >= p.Count {
+		if p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
+			//fmt.Println("close!")
+			time.Sleep(5000 * time.Millisecond)
 			close(p.done)
 			wg.Wait()
 			return nil
@@ -521,52 +511,14 @@ func (p *PingClient) Stop() {
 }
 
 func (p *PingClient) finish() {
+	fmt.Println("total sent: ", p.PacketsSent)
+	fmt.Println("total recv: ", p.PacketsRecv)
+
 	handler := p.OnFinish
 	if handler != nil {
 		s := p.Statistics()
 		handler(s)
 	}
-}
-
-// Statistics returns the statistics of the PingClient. This can be run while the
-// PingClient is running or after it is finished. OnFinish calls this function to
-// get it's finished statistics.
-func (p *PingClient) Statistics() *Statistics {
-	loss := float64(p.PacketsSent-p.PacketsRecv) / float64(p.PacketsSent) * 100
-	var min, max, total time.Duration
-	if len(p.rtts) > 0 {
-		min = p.rtts[0]
-		max = p.rtts[0]
-	}
-	for _, rtt := range p.rtts {
-		if rtt < min {
-			min = rtt
-		}
-		if rtt > max {
-			max = rtt
-		}
-		total += rtt
-	}
-	s := Statistics{
-		PacketsSent: p.PacketsSent,
-		PacketsRecv: p.PacketsRecv,
-		PacketLoss:  loss,
-		Rtts:        p.rtts,
-		Addr:        p.addr,
-		IPAddr:      p.ipaddr,
-		MaxRtt:      max,
-		MinRtt:      min,
-	}
-	if len(p.rtts) > 0 {
-		s.AvgRtt = total / time.Duration(len(p.rtts))
-		var sumsquares time.Duration
-		for _, rtt := range p.rtts {
-			sumsquares += (rtt - s.AvgRtt) * (rtt - s.AvgRtt)
-		}
-		s.StdDevRtt = time.Duration(math.Sqrt(
-			float64(sumsquares / time.Duration(len(p.rtts)))))
-	}
-	return &s
 }
 
 func (p *PingClient) recvICMP(
@@ -585,16 +537,17 @@ func (p *PingClient) recvICMP(
 				return err
 			}
 			var n, ttl int
+			var src net.Addr
 			var err error
 			if conn.IPv4PacketConn() != nil {
 				var cm *ipv4.ControlMessage
-				n, cm, _, err = conn.IPv4PacketConn().ReadFrom(bytes)
+				n, cm, src, err = conn.IPv4PacketConn().ReadFrom(bytes)
 				if cm != nil {
 					ttl = cm.TTL
 				}
 			} else if conn.IPv6PacketConn() != nil {
 				var cm *ipv6.ControlMessage
-				n, cm, _, err = conn.IPv6PacketConn().ReadFrom(bytes)
+				n, cm, src, err = conn.IPv6PacketConn().ReadFrom(bytes)
 				if cm != nil {
 					ttl = cm.HopLimit
 				}
@@ -617,7 +570,7 @@ func (p *PingClient) recvICMP(
 			select {
 			case <-p.done:
 				return nil
-			case recv <- &packet{bytes: bytes, nbytes: n, ttl: ttl}:
+			case recv <- &packet{bytes: bytes, nbytes: n, src: src, ttl: ttl}:
 			}
 		}
 	}
@@ -625,15 +578,23 @@ func (p *PingClient) recvICMP(
 
 func (p *PingClient) processPacket(recv *packet) error {
 	receivedAt := time.Now()
+	var ipStr string
+	var err error
+
+	if ipStr, err = resolveIPFromAddr(recv.src); err != nil {
+		return err
+	}
+
 	var proto int
-	if p.ipv4 {
+	if isIPv4(parseIP(ipStr)) {
 		proto = protocolICMP
-	} else {
+	} else if isIPv6(parseIP(ipStr)) {
 		proto = protocolIPv6ICMP
+	} else {
+		return fmt.Errorf("error processPacket() checking icmp packet IP address: %s", ipStr)
 	}
 
 	var m *icmp.Message
-	var err error
 	if m, err = icmp.ParseMessage(proto, recv.bytes); err != nil {
 		return fmt.Errorf("error parsing icmp message: %s", err.Error())
 	}
@@ -645,8 +606,8 @@ func (p *PingClient) processPacket(recv *packet) error {
 
 	outPkt := &Packet{
 		Nbytes: recv.nbytes,
-		IPAddr: p.ipaddr,
-		Addr:   p.addr,
+		IPAddr: p.findIPAddrbyString(ipStr),
+		IP:     ipStr,
 		Ttl:    recv.ttl,
 	}
 
@@ -671,17 +632,18 @@ func (p *PingClient) processPacket(recv *packet) error {
 		if tracker != p.Tracker {
 			return nil
 		}
-
 		outPkt.Rtt = receivedAt.Sub(timestamp)
 		outPkt.Seq = pkt.Seq
-		p.PacketsRecv++
+		p.PacketsRecv[ipStr]++
+		fmt.Println("recv pkt: ", ipStr)
+		fmt.Println("packet recv: ", p.PacketsRecv[ipStr])
 	default:
 		// Very bad, not sure how this can happen
 		return fmt.Errorf("invalid ICMP echo reply; type: '%T', '%v'", pkt, pkt)
 	}
 
 	if p.RecordRtts {
-		p.rtts = append(p.rtts, outPkt.Rtt)
+		p.rtts[ipStr] = append(p.rtts[ipStr], outPkt.Rtt)
 	}
 	handler := p.OnRecv
 	if handler != nil {
@@ -696,13 +658,17 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 	p.sequence = rand.Intn(0xffff)
 	wg := new(sync.WaitGroup)
 	for key, addr := range p.ips {
+		if p.PacketsSent[addr.IP.String()] >= p.Num {
+			continue
+		}
+		fmt.Println("send to: ", addr.IP.String())
 		var cn *icmp.PacketConn
 		var typ icmp.Type
 		Use(key, cn)
 		if isIPv4(addr.IP) {
 			cn = conn
 			typ = ipv4.ICMPTypeEcho
-		} else if isIpv6(addr.IP) {
+		} else if isIPv6(addr.IP) {
 			cn = conn6
 			typ = ipv6.ICMPTypeEchoRequest
 		} else {
@@ -735,8 +701,14 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 		if err != nil {
 			return err
 		}
+
+		var ipStr string
+		if ipStr, err = resolveIPFromAddr(dst); err != nil {
+			return err
+		}
+
 		wg.Add(1)
-		go func(conn *icmp.PacketConn, dst net.Addr, b []byte) {
+		go func(conn *icmp.PacketConn, dst net.Addr, ipStr string, b []byte) {
 			for {
 				if _, err := conn.WriteTo(b, dst); err != nil {
 					if neterr, ok := err.(*net.OpError); ok {
@@ -745,11 +717,11 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 						}
 					}
 				}
-				p.packetsSent[addr]++
 				break
 			}
+			p.PacketsSent[ipStr]++
 			wg.Done()
-		}(cn, dst, msgBytes)
+		}(cn, dst, ipStr, msgBytes)
 	}
 	wg.Wait()
 
@@ -767,18 +739,86 @@ func (p *PingClient) listen(netProto string) (*icmp.PacketConn, error) {
 
 func (p *PingClient) initPacketsConfig() {
 	for _, addr := range p.ips {
-		p.packetsSent[addr] = 0
-		p.packetsRecv[addr] = 0
-		p.rtt[addr] = make([]time.Duration, 0)
+		p.PacketsSent[addr.IP.String()] = 0
+		p.PacketsRecv[addr.IP.String()] = 0
+		p.rtts[addr.IP.String()] = make([]time.Duration, 0)
 	}
 }
 
-func bytesToTime(b []byte) time.Time {
-	var nsec int64
-	for i := uint8(0); i < 8; i++ {
-		nsec += int64(b[i]) << ((7 - i) * 8)
+// All checks whether all the map entry satisfies the function f
+func All(m map[string]int, f func(int, int) bool, num int) bool {
+	for _, val := range m {
+		if !f(val, num) {
+			return false
+		}
 	}
-	return time.Unix(nsec/1000000000, nsec%1000000000)
+	return true
+}
+
+func packetsSentFinished(sent int, num int) bool {
+	return sent >= num
+}
+
+/* * * * * * * * * * * * * * * * * * * * * * *
+   _____ _        _   _     _   _
+  / ____| |      | | (_)   | | (_)
+ | (___ | |_ __ _| |_ _ ___| |_ _  ___ ___
+  \___ \| __/ _` | __| / __| __| |/ __/ __|
+  ____) | || (_| | |_| \__ \ |_| | (__\__ \
+ |_____/ \__\__,_|\__|_|___/\__|_|\___|___/
+
+* * * * * * * * * * * * * * * * * * * * * * */
+
+// Statistics returns the statistics of the whole PingClient.
+// This can be run while the PingClient is running or after it is finished.
+// OnFinish calls this function to get it's finished statistics.
+func (p *PingClient) Statistics() []*Statistics {
+	stats := make([]*Statistics, 0)
+	for _, ipAddr := range p.ips {
+		s := p.StatisticsPerIP(ipAddr)
+		stats = append(stats, s)
+	}
+
+	return stats
+}
+
+// StatisticsPerIP returns the statistics of the Ping info to the given IP address.
+func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
+	var ipStr string = ipAddr.IP.String()
+	loss := float64(p.PacketsSent[ipStr]-p.PacketsRecv[ipStr]) / float64(p.PacketsSent[ipStr]) * 100
+	var min, max, total time.Duration
+	if len(p.rtts[ipStr]) > 0 {
+		min = p.rtts[ipStr][0]
+		max = p.rtts[ipStr][0]
+	}
+	for _, rt := range p.rtts[ipStr] {
+		if rt < min {
+			min = rt
+		}
+		if rt > max {
+			max = rt
+		}
+		total += rt
+	}
+	s := Statistics{
+		PacketsSent: p.PacketsSent[ipStr],
+		PacketsRecv: p.PacketsRecv[ipStr],
+		PacketLoss:  loss,
+		Rtts:        p.rtts[ipStr],
+		IPAddr:      ipAddr,
+		MaxRtt:      max,
+		MinRtt:      min,
+	}
+	if len(p.rtts[ipStr]) > 0 {
+		s.AvgRtt = total / time.Duration(len(p.rtts[ipStr]))
+		var sumsquares time.Duration
+		for _, rt := range p.rtts[ipStr] {
+			sumsquares += (rt - s.AvgRtt) * (rt - s.AvgRtt)
+		}
+		s.StdDevRtt = time.Duration(math.Sqrt(
+			float64(sumsquares / time.Duration(len(p.rtts[ipStr])))))
+	}
+	return &s
 }
 
 /* * * * * * * * * * * * * * * * * * * * * * *
@@ -795,10 +835,33 @@ func (p *PingClient) ipVersionCheck() {
 	for _, ipAddr := range p.ips {
 		if isIPv4(ipAddr.IP) {
 			p.hasIPv4 = true
-		} else if isIpv6(ipAddr.IP) {
+		} else if isIPv6(ipAddr.IP) {
 			p.hasIPv6 = true
 		}
 	}
+}
+
+func (p *PingClient) findIPAddrbyString(s string) *net.IPAddr {
+	for _, ipAddr := range p.ips {
+		if ipAddr.IP.String() == s {
+			return ipAddr
+		}
+	}
+	return nil
+}
+
+func resolveIPFromAddr(addr net.Addr) (string, error) {
+	var ipStr string
+	switch addr := addr.(type) {
+	case *net.IPAddr:
+		ipStr = addr.IP.String()
+	case *net.UDPAddr:
+		ipStr = addr.IP.String()
+	default:
+		return "", fmt.Errorf("error processPacket() parsing icmp packet IP address: %s", addr)
+	}
+
+	return ipStr, nil
 }
 
 // parse an stirng s to net.IP
@@ -822,8 +885,16 @@ func isIPv4(ip net.IP) bool {
 	return len(ip.To4()) == net.IPv4len
 }
 
-func isIpv6(ip net.IP) bool {
+func isIPv6(ip net.IP) bool {
 	return len(ip.To16()) == net.IPv6len
+}
+
+func bytesToTime(b []byte) time.Time {
+	var nsec int64
+	for i := uint8(0); i < 8; i++ {
+		nsec += int64(b[i]) << ((7 - i) * 8)
+	}
+	return time.Unix(nsec/1000000000, nsec%1000000000)
 }
 
 func timeToBytes(t time.Time) []byte {
