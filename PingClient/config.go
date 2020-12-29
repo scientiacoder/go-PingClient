@@ -16,25 +16,25 @@ type Config struct {
 // PingClientConfig represents
 type PingClientConfig struct {
 	// time interval of sending packets in milliseconds
-	interval time.Duration
+	Interval time.Duration
 
 	// timeout indicates the maximum waiting response time
-	timeout time.Duration
+	Timeout time.Duration
 
 	// ip addresses of pinged endpoints
-	ips []*net.IPAddr
+	IPs []*net.IPAddr
 
 	// urls being pinged
-	urls []string
+	URLs []string
 
 	// number of packets be going to send
-	num int
+	Num int
 
 	// inverted index after resolve IP address of URL
-	ipToURL map[*net.IPAddr]string
+	IPToURL map[*net.IPAddr]string
 
 	// privileged uses icmp raw socket to ping while non-privileged uses udp
-	privileged bool
+	Privileged bool
 }
 
 // NewConfig returns an instance of Config which includes list of PingClientConfig
@@ -46,13 +46,13 @@ func NewConfig() *Config {
 
 func NewDefaultPingClientConfig() *PingClientConfig {
 	return &PingClientConfig{
-		interval:   time.Second,     // default ping interval on Linux is 1 second
-		timeout:    5 * time.Second, // MSDN(windows) waits 5 seconds, Linux waits 2 maximum RTT
-		ips:        make([]*net.IPAddr, 0),
-		urls:       make([]string, 0),
-		num:        5, // default num is 5 on most UNIX systems
-		ipToURL:    make(map[*net.IPAddr]string),
-		privileged: false,
+		Interval:   time.Second,     // default ping interval on Linux is 1 second
+		Timeout:    5 * time.Second, // MSDN(windows) waits 5 seconds, Linux waits 2 maximum RTT
+		IPs:        make([]*net.IPAddr, 0),
+		URLs:       make([]string, 0),
+		Num:        5, // default num is 5 on most UNIX systems
+		IPToURL:    make(map[*net.IPAddr]string),
+		Privileged: false,
 	}
 }
 
@@ -68,10 +68,10 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 		switch k = strings.ToLower(strings.TrimSpace(k)); k {
 		case "interval":
 			intervalInt := conf[stringKey].(int)
-			pingClientConf.interval = time.Duration(intervalInt) * time.Millisecond
+			pingClientConf.Interval = time.Duration(intervalInt) * time.Millisecond
 		case "timeout":
 			timeoutInt := conf[stringKey].(int)
-			pingClientConf.timeout = time.Duration(timeoutInt) * time.Millisecond
+			pingClientConf.Timeout = time.Duration(timeoutInt) * time.Millisecond
 		case "ips":
 			ipStr := conf[stringKey].(string)
 			ipStrList := strings.Split(ipStr, " ")
@@ -80,7 +80,7 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 				if ip = parseIP(v); ip == nil {
 					return nil, fmt.Errorf("Error ParsePingClient(): %s should be in IP format x.x.x.x", v)
 				}
-				pingClientConf.ips = append(pingClientConf.ips, &net.IPAddr{IP: ip})
+				pingClientConf.IPs = append(pingClientConf.IPs, &net.IPAddr{IP: ip})
 			}
 		case "urls":
 			urls := make([]string, 0)
@@ -91,17 +91,18 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 				if err != nil {
 					return nil, fmt.Errorf("Error ParsePingClient(): can not resolve the IP address of url %s", url)
 				}
-				pingClientConf.ips = append(pingClientConf.ips, ipaddr)
+				pingClientConf.IPs = append(pingClientConf.IPs, ipaddr)
 				// construct inverted map
-				pingClientConf.ipToURL[ipaddr] = url
+				pingClientConf.IPToURL[ipaddr] = url
 				urls = append(urls, url)
 			}
+			pingClientConf.URLs = urls
 		case "num":
 			n := conf[stringKey].(int)
-			pingClientConf.num = n
+			pingClientConf.Num = n
 		case "privileged":
 			p := conf[stringKey].(bool)
-			pingClientConf.privileged = p
+			pingClientConf.Privileged = p
 		}
 	}
 	return pingClientConf, nil
