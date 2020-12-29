@@ -55,7 +55,6 @@ package lib
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -87,19 +86,25 @@ var (
 func New(addr string) *PingClient {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return &PingClient{
-		Count:      0,
-		Interval:   time.Second,
-		RecordRtts: true,
-		Size:       timeSliceLength + trackerLength,
-		Timeout:    time.Second * 5,
-		Tracker:    r.Int63n(math.MaxInt64),
-		addr:       addr,
-		done:       make(chan bool),
-		id:         r.Intn(math.MaxInt16),
-		ipaddr:     nil,
-		ipv4:       false,
-		network:    "ip",
-		protocol:   "udp",
+		Count:       0,
+		Num:         5,
+		Interval:    time.Second,
+		RecordRtts:  true,
+		Size:        timeSliceLength + trackerLength,
+		Timeout:     5 * time.Second,
+		Tracker:     r.Int63n(math.MaxInt64),
+		PacketsSent: make(map[string]int),
+		PacketsRecv: make(map[string]int),
+		rtts:        make(map[string][]time.Duration),
+		ips:         make([]*net.IPAddr, 0),
+		urls:        make([]string, 0),
+		ipToURL:     make(map[*net.IPAddr]string),
+		addr:        "",
+		done:        make(chan bool),
+		id:          r.Intn(math.MaxInt16),
+		ipaddr:      nil,
+		network:     "ip",
+		protocol:    "udp",
 	}
 }
 
@@ -125,10 +130,13 @@ func NewWithParams(interval time.Duration, timeout time.Duration, ips []*net.IPA
 		done:        make(chan bool),
 		id:          r.Intn(math.MaxInt16),
 		ipaddr:      nil,
-		ipv4:        false,
 		network:     "ip",
 		protocol:    "udp",
 	}
+}
+
+func NewPingClientWithConfig(conf *Config) {
+
 }
 
 // Use simply resolves xx declared but not used issue
@@ -198,12 +206,6 @@ func ParsePingClient(pingClientMap map[interface{}]interface{}) (*PingClient, er
 
 }
 
-// NewPingClient returns a new PingClient and resolves the address.
-func NewPingClient(addr string) (*PingClient, error) {
-	p := New(addr)
-	return p, p.Resolve()
-}
-
 // PingClient represents a packet sender/receiver.
 type PingClient struct {
 	// Interval is the wait time between each packet send. Default is 1s.
@@ -270,7 +272,6 @@ type PingClient struct {
 	// has Ipv6 in ips
 	hasIPv6 bool
 
-	ipv4     bool
 	id       int
 	sequence int
 	// network is one of "ip", "ip4", or "ip6".
@@ -322,6 +323,9 @@ type Statistics struct {
 	// IPAddr is the address of the host being pinged.
 	IPAddr *net.IPAddr
 
+	// IP address in string format e.g "142.250.71.78"
+	IP string
+
 	// Rtts is all of the round-trip times sent via this PingClient.
 	Rtts []time.Duration
 
@@ -337,54 +341,6 @@ type Statistics struct {
 	// StdDevRtt is the standard deviation of the round-trip times sent via
 	// this PingClient.
 	StdDevRtt time.Duration
-}
-
-// SetIPAddr sets the ip address of the target host.
-func (p *PingClient) SetIPAddr(ipaddr *net.IPAddr) {
-	p.ipv4 = isIPv4(ipaddr.IP)
-
-	p.ipaddr = ipaddr
-	p.addr = ipaddr.String()
-}
-
-// IPAddr returns the ip address of the target host.
-func (p *PingClient) IPAddr() *net.IPAddr {
-	return p.ipaddr
-}
-
-// Resolve does the DNS lookup for the PingClient address and sets IP protocol.
-func (p *PingClient) Resolve() error {
-	if len(p.addr) == 0 {
-		return errors.New("addr cannot be empty")
-	}
-	ipaddr, err := net.ResolveIPAddr(p.network, p.addr)
-	if err != nil {
-		return err
-	}
-
-	p.ipv4 = isIPv4(ipaddr.IP)
-
-	p.ipaddr = ipaddr
-
-	return nil
-}
-
-// SetAddr resolves and sets the ip address of the target host, addr can be a
-// DNS name like "www.google.com" or IP like "127.0.0.1".
-func (p *PingClient) SetAddr(addr string) error {
-	oldAddr := p.addr
-	p.addr = addr
-	err := p.Resolve()
-	if err != nil {
-		p.addr = oldAddr
-		return err
-	}
-	return nil
-}
-
-// Addr returns the string ip address of the target host.
-func (p *PingClient) Addr() string {
-	return p.addr
 }
 
 // SetNetwork allows configuration of DNS resolution.
@@ -482,7 +438,9 @@ func (p *PingClient) Run() error {
 			return nil
 		case <-interval.C:
 			if p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
-				continue
+				close(p.done)
+				wg.Done()
+				return nil
 			}
 			err = p.sendICMP(conn, conn6)
 			if err != nil {
@@ -496,13 +454,6 @@ func (p *PingClient) Run() error {
 				fmt.Println("FATAL: ", err.Error())
 			}
 		}
-		if p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
-			//fmt.Println("close!")
-			time.Sleep(5000 * time.Millisecond)
-			close(p.done)
-			wg.Wait()
-			return nil
-		}
 	}
 }
 
@@ -511,8 +462,6 @@ func (p *PingClient) Stop() {
 }
 
 func (p *PingClient) finish() {
-	fmt.Println("total sent: ", p.PacketsSent)
-	fmt.Println("total recv: ", p.PacketsRecv)
 
 	handler := p.OnFinish
 	if handler != nil {
@@ -635,8 +584,6 @@ func (p *PingClient) processPacket(recv *packet) error {
 		outPkt.Rtt = receivedAt.Sub(timestamp)
 		outPkt.Seq = pkt.Seq
 		p.PacketsRecv[ipStr]++
-		fmt.Println("recv pkt: ", ipStr)
-		fmt.Println("packet recv: ", p.PacketsRecv[ipStr])
 	default:
 		// Very bad, not sure how this can happen
 		return fmt.Errorf("invalid ICMP echo reply; type: '%T', '%v'", pkt, pkt)
@@ -661,7 +608,6 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 		if p.PacketsSent[addr.IP.String()] >= p.Num {
 			continue
 		}
-		fmt.Println("send to: ", addr.IP.String())
 		var cn *icmp.PacketConn
 		var typ icmp.Type
 		Use(key, cn)
@@ -806,6 +752,7 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 		PacketLoss:  loss,
 		Rtts:        p.rtts[ipStr],
 		IPAddr:      ipAddr,
+		IP:          ipStr,
 		MaxRtt:      max,
 		MinRtt:      min,
 	}
