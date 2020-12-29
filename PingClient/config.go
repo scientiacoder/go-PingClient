@@ -10,9 +10,10 @@ import (
 // Config helps parsing config.yaml or config.yml
 // It will convert yaml file to a list of PingClientConfig
 type Config struct {
-	pingClientsConf []*PingClientConfig
+	PingClientsConf []*PingClientConfig
 }
 
+// PingClientConfig represents
 type PingClientConfig struct {
 	// time interval of sending packets in milliseconds
 	interval time.Duration
@@ -39,7 +40,7 @@ type PingClientConfig struct {
 // NewConfig returns an instance of Config which includes list of PingClientConfig
 func NewConfig() *Config {
 	return &Config{
-		pingClientsConf: make([]*PingClientConfig, 0),
+		PingClientsConf: make([]*PingClientConfig, 0),
 	}
 }
 
@@ -82,6 +83,7 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 				pingClientConf.ips = append(pingClientConf.ips, &net.IPAddr{IP: ip})
 			}
 		case "urls":
+			urls := make([]string, 0)
 			urlStr := conf[stringKey].(string)
 			urlList := strings.Split(urlStr, " ")
 			for _, url := range urlList {
@@ -92,6 +94,7 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 				pingClientConf.ips = append(pingClientConf.ips, ipaddr)
 				// construct inverted map
 				pingClientConf.ipToURL[ipaddr] = url
+				urls = append(urls, url)
 			}
 		case "num":
 			n := conf[stringKey].(int)
@@ -108,7 +111,7 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 func ParseConfig(conf map[interface{}]interface{}) (*Config, error) {
 	_, ok := conf["app"]
 	if !ok {
-		return nil, fmt.Errorf("Error ParseConfig(): key app does not exist!")
+		return nil, fmt.Errorf("error ParseConfig(): key app does not exist!")
 	}
 
 	m, _ := conf["app"].(map[interface{}]interface{})
@@ -123,7 +126,7 @@ func ParseConfig(conf map[interface{}]interface{}) (*Config, error) {
 			return nil, fmt.Errorf("%s", err)
 		}
 
-		config.pingClientsConf = append(config.pingClientsConf, p)
+		config.PingClientsConf = append(config.PingClientsConf, p)
 	}
 	return config, nil
 }
