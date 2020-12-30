@@ -105,6 +105,19 @@ func New() *PingClient {
 	}
 }
 
+// NewPingClient returns a new PingClient struct pointer and resolves string addr
+func NewPingClient(addr string) (*PingClient, error) {
+	p := New()
+	return p, p.Resolve(addr)
+}
+
+// NewPrivilegedPingClient returns a new raw socket PingClient struct pointer and resolves string addr
+func NewPrivilegedPingClient(addr string) (*PingClient, error) {
+	p := New()
+	p.SetPrivileged(true)
+	return p, p.Resolve(addr)
+}
+
 // InitWithConfig inits list of ping clients configured by the yaml file
 func InitWithConfig(conf *Config) []*PingClient {
 	pingClients := make([]*PingClient, 0)
@@ -359,8 +372,8 @@ func (p *PingClient) Run() error {
 		return err
 	}
 
-	//timeout := time.NewTicker(p.Timeout)
-	//defer timeout.Stop()
+	timeout := time.NewTicker(p.Timeout)
+	defer timeout.Stop()
 	interval := time.NewTicker(p.Interval)
 	defer interval.Stop()
 
@@ -381,6 +394,10 @@ func (p *PingClient) Run() error {
 				// FIXME: this logs as FATAL but continues
 				fmt.Println("FATAL: ", err.Error())
 			}
+		case <-timeout.C:
+			close(p.done)
+			wg.Wait()
+			return nil
 		case r := <-recv:
 			err := p.processPacket(r)
 			if err != nil {
@@ -712,6 +729,39 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
  |_____|_|       \____/ \__|_|_|___/
 
 * * * * * * * * * * * * * * * * * * * * * * */
+// Resolve parses addr(ip format or url format) to net.IP and
+// adds net.IP to pingClient
+func (p *PingClient) Resolve(addr string) error {
+	if parseIP(addr) != nil {
+		return p.AddIPAddr(addr)
+	}
+	return p.AddURLAddr(addr)
+}
+
+// AddIPAddr adds IP address to ping client
+func (p *PingClient) AddIPAddr(addr string) error {
+	ip := parseIP(addr)
+	if isIPv4(ip) {
+		p.ips = append(p.ips, &net.IPAddr{IP: ip})
+	} else if isIPv6(ip) {
+		p.ips = append(p.ips, &net.IPAddr{IP: ip})
+	} else {
+		return fmt.Errorf("error AddIPAddr() addr %s should be a valid IP address", addr)
+	}
+	return nil
+}
+
+// AddURLAddr resolves URL addr to IP address and adds IP address to ping client
+func (p *PingClient) AddURLAddr(addr string) error {
+	ipAddr, err := parseURL(p.network, addr)
+	if err != nil {
+		return err
+	}
+	p.ips = append(p.ips, ipAddr)
+	p.ipToURL[ipAddr] = addr
+
+	return nil
+}
 
 func (p *PingClient) ipVersionCheck() {
 	for _, ipAddr := range p.ips {
