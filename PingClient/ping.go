@@ -60,7 +60,6 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -83,7 +82,7 @@ var (
 )
 
 // New returns a new PingClient struct pointer.
-func New(addr string) *PingClient {
+func New() *PingClient {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return &PingClient{
 		Count:       0,
@@ -99,44 +98,37 @@ func New(addr string) *PingClient {
 		ips:         make([]*net.IPAddr, 0),
 		urls:        make([]string, 0),
 		ipToURL:     make(map[*net.IPAddr]string),
-		addr:        "",
 		done:        make(chan bool),
 		id:          r.Intn(math.MaxInt16),
-		ipaddr:      nil,
 		network:     "ip",
 		protocol:    "udp",
 	}
 }
 
-func NewWithParams(interval time.Duration, timeout time.Duration, ips []*net.IPAddr,
-	urls []string, num int, ipToURL map[*net.IPAddr]string) *PingClient {
-
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return &PingClient{
-		Count:       0,
-		Num:         num,
-		Interval:    interval,
-		RecordRtts:  true,
-		Size:        timeSliceLength + trackerLength,
-		Timeout:     timeout,
-		Tracker:     r.Int63n(math.MaxInt64),
-		PacketsSent: make(map[string]int),
-		PacketsRecv: make(map[string]int),
-		rtts:        make(map[string][]time.Duration),
-		ips:         ips,
-		urls:        urls,
-		ipToURL:     ipToURL,
-		addr:        "",
-		done:        make(chan bool),
-		id:          r.Intn(math.MaxInt16),
-		ipaddr:      nil,
-		network:     "ip",
-		protocol:    "udp",
+// InitWithConfig inits list of ping clients configured by the yaml file
+func InitWithConfig(conf *Config) []*PingClient {
+	pingClients := make([]*PingClient, 0)
+	for _, v := range conf.PingClientsConf {
+		pingClient := NewPingClientWithConfig(v)
+		pingClients = append(pingClients, pingClient)
 	}
+	return pingClients
 }
 
-func NewPingClientWithConfig(conf *Config) {
+// NewPingClientWithConfig uses struct PingClientConfig to create a new PingClient
+func NewPingClientWithConfig(conf *PingClientConfig) *PingClient {
+	pingClient := New()
 
+	pingClient.Interval = conf.Interval
+	pingClient.Timeout = conf.Timeout
+	pingClient.ips = conf.IPs
+	pingClient.urls = conf.URLs
+	pingClient.Num = conf.Num
+	pingClient.ipToURL = conf.IPToURL
+
+	pingClient.SetPrivileged(conf.Privileged)
+
+	return pingClient
 }
 
 // Use simply resolves xx declared but not used issue
@@ -145,65 +137,6 @@ func Use(args ...interface{}) {
 	for _, val := range args {
 		_ = val
 	}
-}
-
-// ParsePingClient parses PingClient config yaml file and returns instance of PingClient
-func ParsePingClient(pingClientMap map[interface{}]interface{}) (*PingClient, error) {
-	interval := time.Second
-	timeout := 5 * time.Second
-	ips := make([]*net.IPAddr, 0)
-	urls := make([]string, 0)
-	num := 5
-	ipToURL := make(map[*net.IPAddr]string)
-	privileged := false
-
-	for key := range pingClientMap {
-		k := key.(string)
-		stringKey := key.(string)
-
-		switch k = strings.ToLower(strings.TrimSpace(k)); k {
-		case "interval":
-			intervalInt := pingClientMap[stringKey].(int)
-			interval = time.Duration(intervalInt) * time.Millisecond
-		case "timeout":
-			timeoutInt := pingClientMap[stringKey].(int)
-			timeout = time.Duration(timeoutInt) * time.Millisecond
-		case "ips":
-			ipStr := pingClientMap[stringKey].(string)
-			ipStrList := strings.Split(ipStr, " ")
-			var ip net.IP
-			for _, v := range ipStrList {
-				if ip = parseIP(v); ip == nil {
-					return nil, fmt.Errorf("Error ParsePingClient(): %s should be in IP format x.x.x.x", v)
-				}
-				ips = append(ips, &net.IPAddr{IP: ip})
-			}
-		case "urls":
-			urlStr := pingClientMap[stringKey].(string)
-			urlList := strings.Split(urlStr, " ")
-			for _, url := range urlList {
-				ipaddr, err := parseURL("ip", url)
-				if err != nil {
-					return nil, fmt.Errorf("Error ParsePingClient(): can not resolve the IP address of url %s", url)
-				}
-				ips = append(ips, ipaddr)
-				// construct inverted map
-				ipToURL[ipaddr] = url
-			}
-		case "num":
-			n := pingClientMap[stringKey].(int)
-			num = n
-		case "privileged":
-			p := pingClientMap[stringKey].(bool)
-			privileged = p
-		}
-	}
-
-	pingClient := NewWithParams(interval, timeout, ips, urls, num, ipToURL)
-	pingClient.SetPrivileged(privileged)
-
-	return pingClient, nil
-
 }
 
 // PingClient represents a packet sender/receiver.
@@ -426,8 +359,8 @@ func (p *PingClient) Run() error {
 		return err
 	}
 
-	timeout := time.NewTicker(p.Timeout)
-	defer timeout.Stop()
+	//timeout := time.NewTicker(p.Timeout)
+	//defer timeout.Stop()
 	interval := time.NewTicker(p.Interval)
 	defer interval.Stop()
 
@@ -438,8 +371,9 @@ func (p *PingClient) Run() error {
 			return nil
 		case <-interval.C:
 			if p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
+				fmt.Println("close there!")
 				close(p.done)
-				wg.Done()
+				wg.Wait()
 				return nil
 			}
 			err = p.sendICMP(conn, conn6)
@@ -510,6 +444,7 @@ func (p *PingClient) recvICMP(
 						// Read timeout
 						continue
 					} else {
+						fmt.Println("close here?")
 						close(p.done)
 						return err
 					}
