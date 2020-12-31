@@ -2,9 +2,12 @@ package lib
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
 // Config helps parsing config.yaml or config.yml
@@ -32,6 +35,9 @@ type PingClientConfig struct {
 
 	// inverted index after resolve IP address of URL
 	IPToURL map[*net.IPAddr]string
+
+	// whether run continuously(forever)
+	Continuous bool
 
 	// privileged uses icmp raw socket to ping while non-privileged uses udp
 	Privileged bool
@@ -103,6 +109,9 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 		case "privileged":
 			p := conf[stringKey].(bool)
 			pingClientConf.Privileged = p
+		case "continuous":
+			con := conf[stringKey].(bool)
+			pingClientConf.Continuous = con
 		}
 	}
 	return pingClientConf, nil
@@ -130,4 +139,24 @@ func ParseConfig(conf map[interface{}]interface{}) (*Config, error) {
 		config.PingClientsConf = append(config.PingClientsConf, p)
 	}
 	return config, nil
+}
+
+// InitWithYAMLFile inits a ping client with given yaml file
+func InitWithYAMLFile(name string) ([]*PingClient, error) {
+	data, err := ioutil.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("Error main(): %s", err)
+	}
+	configYaml := make(map[interface{}]interface{})
+	err = yaml.Unmarshal([]byte(data), &configYaml)
+	if err != nil {
+		return nil, fmt.Errorf("Error main(): %s", err)
+	}
+
+	config, err := ParseConfig(configYaml)
+	if err != nil {
+		return nil, fmt.Errorf("Error main(): %s", err)
+	}
+
+	return InitWithConfig(config), nil
 }

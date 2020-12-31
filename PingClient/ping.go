@@ -94,10 +94,12 @@ func New() *PingClient {
 		Tracker:     r.Int63n(math.MaxInt64),
 		PacketsSent: make(map[string]int),
 		PacketsRecv: make(map[string]int),
+		PacketsInfo: make(map[string]*Packet),
 		rtts:        make(map[string][]time.Duration),
 		ips:         make([]*net.IPAddr, 0),
 		urls:        make([]string, 0),
 		ipToURL:     make(map[*net.IPAddr]string),
+		continuous:  false,
 		done:        make(chan bool),
 		id:          r.Intn(math.MaxInt16),
 		network:     "ip",
@@ -108,14 +110,14 @@ func New() *PingClient {
 // NewPingClient returns a new PingClient struct pointer and resolves string addr
 func NewPingClient(addr string) (*PingClient, error) {
 	p := New()
-	return p, p.Resolve(addr)
+	return p, p.Add(addr)
 }
 
 // NewPrivilegedPingClient returns a new raw socket PingClient struct pointer and resolves string addr
 func NewPrivilegedPingClient(addr string) (*PingClient, error) {
 	p := New()
 	p.SetPrivileged(true)
-	return p, p.Resolve(addr)
+	return p, p.Add(addr)
 }
 
 // InitWithConfig inits list of ping clients configured by the yaml file
@@ -138,6 +140,7 @@ func NewPingClientWithConfig(conf *PingClientConfig) *PingClient {
 	pingClient.urls = conf.URLs
 	pingClient.Num = conf.Num
 	pingClient.ipToURL = conf.IPToURL
+	pingClient.continuous = conf.Continuous
 
 	pingClient.SetPrivileged(conf.Privileged)
 
@@ -178,6 +181,9 @@ type PingClient struct {
 	// Number of packets received
 	PacketsRecv map[string]int
 
+	// Received packets info for Statistics use
+	PacketsInfo map[string]*Packet
+
 	// Round trip time duration of all the packets
 	rtts map[string][]time.Duration
 
@@ -212,6 +218,9 @@ type PingClient struct {
 	urls []string
 
 	ipToURL map[*net.IPAddr]string
+
+	// whether run continuously(forever)
+	continuous bool
 
 	// has Ipv4 in ips
 	hasIPv4 bool
@@ -322,8 +331,7 @@ func (p *PingClient) Privileged() bool {
 }
 
 // Run runs the PingClient. This is a blocking function that will exit when it's
-// done. If Count or Interval are not specified, it will run continuously until
-// it is interrupted.
+// done.
 func (p *PingClient) Run() error {
 	var conn, conn6 *icmp.PacketConn
 	var err error
@@ -373,7 +381,11 @@ func (p *PingClient) Run() error {
 	}
 
 	timeout := time.NewTicker(p.Timeout)
-	defer timeout.Stop()
+	if p.continuous {
+		timeout.Stop()
+	} else {
+		defer timeout.Stop()
+	}
 	interval := time.NewTicker(p.Interval)
 	defer interval.Stop()
 
@@ -383,8 +395,7 @@ func (p *PingClient) Run() error {
 			wg.Wait()
 			return nil
 		case <-interval.C:
-			if p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
-				fmt.Println("close there!")
+			if !p.continuous && p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
 				close(p.done)
 				wg.Wait()
 				return nil
@@ -408,6 +419,7 @@ func (p *PingClient) Run() error {
 	}
 }
 
+// Stop the ping client
 func (p *PingClient) Stop() {
 	close(p.done)
 }
@@ -556,13 +568,12 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 	p.id = rand.Intn(0xffff)
 	p.sequence = rand.Intn(0xffff)
 	wg := new(sync.WaitGroup)
-	for key, addr := range p.ips {
-		if p.PacketsSent[addr.IP.String()] >= p.Num {
+	for _, addr := range p.ips {
+		if !p.continuous && p.PacketsSent[addr.IP.String()] >= p.Num {
 			continue
 		}
 		var cn *icmp.PacketConn
 		var typ icmp.Type
-		Use(key, cn)
 		if isIPv4(addr.IP) {
 			cn = conn
 			typ = ipv4.ICMPTypeEcho
@@ -729,9 +740,9 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
  |_____|_|       \____/ \__|_|_|___/
 
 * * * * * * * * * * * * * * * * * * * * * * */
-// Resolve parses addr(ip format or url format) to net.IP and
+// Add parses addr(ip format or url format) to net.IP and
 // adds net.IP to pingClient
-func (p *PingClient) Resolve(addr string) error {
+func (p *PingClient) Add(addr string) error {
 	if parseIP(addr) != nil {
 		return p.AddIPAddr(addr)
 	}
