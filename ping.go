@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
+	"os/signal"
 
 	ping "./PingClient"
-	"gopkg.in/yaml.v2"
 )
 
 var confile []byte
@@ -14,44 +14,48 @@ var confile []byte
 // type alias
 type PingClient = ping.PingClient
 
-type Config struct {
-}
-
-func initPingClients(configMap map[interface{}]interface{}) ([]PingClient, error) {
-	_, ok := configMap["app"]
-	if !ok {
-		return nil, fmt.Errorf("Error initPingClients(): app does not exist!")
-	}
-
-	m, _ := configMap["app"].(map[interface{}]interface{})
-
-	for key, _ := range m {
-		v, _ := m[key].(map[interface{}]interface{})
-		ping.ParsePingClient(v)
-	}
-
-	return nil, nil
-}
-
 func main() {
-	// "testyaml/t1.yaml"
-	data, err := ioutil.ReadFile("config.yaml")
-	// data, err := ioutil.ReadFile("testyaml/t1.yaml")
+	//pingClients, err := ping.InitWithYAMLFile("testyaml/t1.yaml")
+	pingClients, err := ping.InitWithYAMLFile("config.yaml")
 	if err != nil {
-		log.Fatalf("Error main(): can not find config.yaml")
+		log.Fatalf("%s", err)
 		return
 	}
-	configMap := make(map[interface{}]interface{})
-	err = yaml.Unmarshal([]byte(data), &configMap)
-	if err != nil {
-		log.Fatalf("Error main(): %v", err)
+
+	// Listen for Ctrl-C.
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for _ = range c {
+			for _, pingClient := range pingClients {
+				pingClient.Stop()
+			}
+		}
+	}()
+
+	for _, p := range pingClients {
+		p.OnRecv = func(pkt *ping.Packet) {
+			fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
+				pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
+
+		}
+		p.OnFinish = func(stats []*ping.Statistics) {
+			for _, stat := range stats {
+				fmt.Printf("\n--- %s ping statistics ---\n", stat.IP)
+				for _, pkt := range stat.PacketsInfo {
+					fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
+						pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
+				}
+				fmt.Printf("%d packets transmitted, %d packets received, %v%% packet loss\n",
+					stat.PacketsSent, stat.PacketsRecv, stat.PacketLoss)
+				fmt.Printf("round-trip min/avg/max/stddev = %v/%v/%v/%v\n",
+					stat.MinRtt, stat.AvgRtt, stat.MaxRtt, stat.StdDevRtt)
+			}
+		}
 	}
 
-	pingClients := make([]PingClient, 0)
-	if pingClients, err = initPingClients(configMap); err != nil {
-		log.Printf("%s\n", err)
+	for _, p := range pingClients {
+		p.Run()
 	}
-
-	fmt.Println(pingClients)
 
 }

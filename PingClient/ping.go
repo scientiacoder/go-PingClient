@@ -94,7 +94,7 @@ func New() *PingClient {
 		Tracker:     r.Int63n(math.MaxInt64),
 		PacketsSent: make(map[string]int),
 		PacketsRecv: make(map[string]int),
-		PacketsInfo: make(map[string]*Packet),
+		PacketsInfo: make(map[string][]*Packet),
 		rtts:        make(map[string][]time.Duration),
 		ips:         make([]*net.IPAddr, 0),
 		urls:        make([]string, 0),
@@ -182,7 +182,7 @@ type PingClient struct {
 	PacketsRecv map[string]int
 
 	// Received packets info for Statistics use
-	PacketsInfo map[string]*Packet
+	PacketsInfo map[string][]*Packet
 
 	// Round trip time duration of all the packets
 	rtts map[string][]time.Duration
@@ -274,6 +274,9 @@ type Statistics struct {
 
 	// PacketLoss is the percentage of packets lost.
 	PacketLoss float64
+
+	// Received packets info for Statistics use
+	PacketsInfo []*Packet
 
 	// IPAddr is the address of the host being pinged.
 	IPAddr *net.IPAddr
@@ -553,7 +556,8 @@ func (p *PingClient) processPacket(recv *packet) error {
 		return fmt.Errorf("invalid ICMP echo reply; type: '%T', '%v'", pkt, pkt)
 	}
 
-	if p.RecordRtts {
+	if p.RecordRtts && !p.continuous {
+		p.PacketsInfo[ipStr] = append(p.PacketsInfo[ipStr], outPkt)
 		p.rtts[ipStr] = append(p.rtts[ipStr], outPkt.Rtt)
 	}
 	handler := p.OnRecv
@@ -650,6 +654,7 @@ func (p *PingClient) initPacketsConfig() {
 	for _, addr := range p.ips {
 		p.PacketsSent[addr.IP.String()] = 0
 		p.PacketsRecv[addr.IP.String()] = 0
+		p.PacketsInfo[addr.IP.String()] = make([]*Packet, 0)
 		p.rtts[addr.IP.String()] = make([]time.Duration, 0)
 	}
 }
@@ -712,6 +717,7 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 	s := Statistics{
 		PacketsSent: p.PacketsSent[ipStr],
 		PacketsRecv: p.PacketsRecv[ipStr],
+		PacketsInfo: p.PacketsInfo[ipStr],
 		PacketLoss:  loss,
 		Rtts:        p.rtts[ipStr],
 		IPAddr:      ipAddr,

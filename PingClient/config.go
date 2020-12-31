@@ -58,6 +58,7 @@ func NewDefaultPingClientConfig() *PingClientConfig {
 		URLs:       make([]string, 0),
 		Num:        5, // default num is 5 on most UNIX systems
 		IPToURL:    make(map[*net.IPAddr]string),
+		Continuous: false,
 		Privileged: false,
 	}
 }
