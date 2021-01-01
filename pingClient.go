@@ -114,7 +114,8 @@ func New() *PingClient {
 		URLs:        make([]string, 0),
 		IPToURL:     make(map[string]string),
 		done:        make(chan bool),
-		id:          r.Intn(math.MaxInt16),
+		id:          rand.Intn(0xffff),
+		sequence:    rand.Intn(0xffff),
 		network:     "ip",
 		protocol:    "udp",
 	}
@@ -389,7 +390,7 @@ func (p *PingClient) Run() error {
 	defer p.finish()
 
 	var wg sync.WaitGroup
-	recv := make(chan *packet, 5)
+	recv := make(chan *packet, 5*len(p.IPs))
 	defer close(recv)
 	if conn != nil {
 		wg.Add(1)
@@ -594,8 +595,6 @@ func (p *PingClient) processPacket(recv *packet) error {
 }
 
 func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
-	p.id = rand.Intn(0xffff)
-	p.sequence = rand.Intn(0xffff)
 	wg := new(sync.WaitGroup)
 	for _, addr := range p.IPs {
 		if !p.Continuous && p.PacketsSent[addr.IP.String()] >= p.Num {
@@ -662,6 +661,7 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 		}(cn, dst, ipStr, msgBytes)
 	}
 	wg.Wait()
+	p.sequence++
 
 	return nil
 }

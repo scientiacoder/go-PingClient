@@ -16,7 +16,7 @@ type Config struct {
 	PingClientsConf []*PingClientConfig
 }
 
-// PingClientConfig represents
+// PingClientConfig represents config struct for single PingClient
 type PingClientConfig struct {
 	// time interval of sending packets in milliseconds
 	Interval time.Duration
@@ -50,6 +50,7 @@ func NewConfig() *Config {
 	}
 }
 
+// NewDefaultPingClientConfig inits a PingClientConfig with default value
 func NewDefaultPingClientConfig() *PingClientConfig {
 	return &PingClientConfig{
 		Interval:   time.Second,     // default ping interval on Linux is 1 second
@@ -122,7 +123,7 @@ func parsePingClientConfig(conf map[interface{}]interface{}) (*PingClientConfig,
 func ParseConfig(conf map[interface{}]interface{}) (*Config, error) {
 	_, ok := conf["app"]
 	if !ok {
-		return nil, fmt.Errorf("error ParseConfig(): key app does not exist!")
+		return nil, fmt.Errorf("error ParseConfig(): key app does not exist")
 	}
 
 	m, _ := conf["app"].(map[interface{}]interface{})

@@ -65,10 +65,12 @@ func runWithYaml() {
 		pingClient.OnFinish = func(stats []*ping.Statistics) {
 			for _, stat := range stats {
 				fmt.Printf("\n--- %s %s ping statistics ---\n", stat.URL, stat.IP)
-				for _, pkt := range stat.PacketsInfo {
-					fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
-						pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
-				}
+				/*
+					for _, pkt := range stat.PacketsInfo {
+						fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
+							pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
+					}
+				*/
 				fmt.Printf("%d packets transmitted, %d packets received, %v%% packet loss\n",
 					stat.PacketsSent, stat.PacketsRecv, stat.PacketLoss)
 				fmt.Printf("round-trip min/avg/max/stddev = %v/%v/%v/%v\n",
@@ -80,9 +82,9 @@ func runWithYaml() {
 		for i := range pingClient.IPs {
 			ipStr := pingClient.IPs[i].IP.String()
 			if url, ok := pingClient.IPToURL[ipStr]; ok {
-				fmt.Printf("\nPING %s %s:\n", url, pingClient.IPs[i].IP.String())
+				fmt.Printf("PING %s %s:\n", url, pingClient.IPs[i].IP.String())
 			} else {
-				fmt.Printf("\nPING %s:\n", ipStr)
+				fmt.Printf("PING %s:\n", ipStr)
 			}
 		}
 		err := pingClient.Run()
@@ -120,10 +122,12 @@ func runWithCmd(timeout *time.Duration, interval *time.Duration, num *int,
 	pingClient.OnFinish = func(stats []*ping.Statistics) {
 		for _, stat := range stats {
 			fmt.Printf("\n--- %s %s ping statistics ---\n", stat.URL, stat.IP)
-			for _, pkt := range stat.PacketsInfo {
-				fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
-					pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
-			}
+			/*
+				for _, pkt := range stat.PacketsInfo {
+					fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
+						pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
+				}
+			*/
 			fmt.Printf("%d packets transmitted, %d packets received, %v%% packet loss\n",
 				stat.PacketsSent, stat.PacketsRecv, stat.PacketLoss)
 			fmt.Printf("round-trip min/avg/max/stddev = %v/%v/%v/%v\n",
@@ -138,9 +142,9 @@ func runWithCmd(timeout *time.Duration, interval *time.Duration, num *int,
 	for i := range pingClient.IPs {
 		ipStr := pingClient.IPs[i].IP.String()
 		if url, ok := pingClient.IPToURL[ipStr]; ok {
-			fmt.Printf("\nPING %s %s:\n", url, pingClient.IPs[i].IP.String())
+			fmt.Printf("PING %s %s:\n", url, pingClient.IPs[i].IP.String())
 		} else {
-			fmt.Printf("\nPING %s:\n", ipStr)
+			fmt.Printf("PING %s:\n", ipStr)
 		}
 	}
 
