@@ -112,7 +112,7 @@ func New() *PingClient {
 		rtts:        make(map[string][]time.Duration),
 		IPs:         make([]*net.IPAddr, 0),
 		URLs:        make([]string, 0),
-		ipToURL:     make(map[string]string),
+		IPToURL:     make(map[string]string),
 		done:        make(chan bool),
 		id:          r.Intn(math.MaxInt16),
 		network:     "ip",
@@ -152,7 +152,7 @@ func NewPingClientWithConfig(conf *PingClientConfig) *PingClient {
 	pingClient.IPs = conf.IPs
 	pingClient.URLs = conf.URLs
 	pingClient.Num = conf.Num
-	pingClient.ipToURL = conf.IPToURL
+	pingClient.IPToURL = conf.IPToURL
 	pingClient.Continuous = conf.Continuous
 
 	pingClient.SetPrivileged(conf.Privileged)
@@ -228,7 +228,7 @@ type PingClient struct {
 	// list of destination ping URLs
 	URLs []string
 
-	ipToURL map[string]string
+	IPToURL map[string]string
 
 	// whether run Continuously(forever)
 	Continuous bool
@@ -272,6 +272,15 @@ type Packet struct {
 
 	// TTL is the Time To Live on the packet.
 	Ttl int
+}
+
+// StatisticsList is a wrapper for list of Statistics
+type StatisticsList struct {
+	// list of Statistics
+	stats []*Statistics
+
+	// mutex lock for console printing use
+	mu sync.Mutex
 }
 
 // Statistics represent the stats of a currently running or finished
@@ -736,7 +745,7 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 		PacketsInfo: p.PacketsInfo[ipStr],
 		PacketLoss:  loss,
 		Rtts:        p.rtts[ipStr],
-		URL:         p.ipToURL[ipStr],
+		URL:         p.IPToURL[ipStr],
 		IP:          ipStr,
 		MaxRtt:      max,
 		MinRtt:      min,
@@ -792,7 +801,7 @@ func (p *PingClient) AddURLAddr(addr string) error {
 	}
 	p.IPs = append(p.IPs, ipAddr)
 	p.URLs = append(p.URLs, addr)
-	p.ipToURL[ipAddr.IP.String()] = addr
+	p.IPToURL[ipAddr.IP.String()] = addr
 
 	return nil
 }
