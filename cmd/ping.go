@@ -14,7 +14,7 @@ import (
 
 var confile []byte
 
-// type alias
+// PingClient type alias
 type PingClient = ping.PingClient
 
 var usage = `
