@@ -1,0 +1,31 @@
+app:
+  pingClient1:
+    interval:
+      200   # in milliseconds (ping发包的时间间隔,单位毫秒)
+    timeout:
+      5000   # in milliseconds Timeout specifies a timeout before ping exits (ping会在经过这个时间后自动退出，单位毫秒)
+    ips:
+      142.250.71.78
+      220.181.38.148
+    urls:
+      www.github.com
+      www.stackoverflow.com
+      golang.org
+    num:
+      5 # number of packets send per ip(or url) (ping每个地址的次数)
+    privileged:
+      false # false uses udp ping, true uses icmp raw socket need privilege (false基于udp, true需要权限使用原生socket)
+    continuous:
+      false # true means it will ping addresses continuously, ignore the num (default: false) (true表示会一直ping下去, 忽略num, 默认是false)
+  pingClient2:
+    ips:
+      142.250.71.78
+      220.181.38.148
+  pingClient3:
+    urls:
+      google.com
+  pingClient4:
+    urls:
+      github.com
+    privileged:
+      false
