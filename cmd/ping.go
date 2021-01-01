@@ -12,19 +12,14 @@ import (
 	ping "github.com/scientiacoder/PingClient"
 )
 
-var confile []byte
-
-// PingClient type alias
-type PingClient = ping.PingClient
-
 var usage = `
 PingClient Usage:
 
     ping [-n num] [-i interval] [-t timeout] [-c continuous] [--privileged] host
 
 Examples:
-	# ping with config yaml file
-	ping config.yaml
+    # ping with config yaml file
+    ping config.yaml
 
     # ping github continuously
     ping -c www.github.com
@@ -160,7 +155,7 @@ func main() {
 	timeout := flag.Duration("t", 5*time.Second, "")
 	interval := flag.Duration("i", 1*time.Second, "")
 	num := flag.Int("n", 5, "")
-	continuous := flag.Bool("c", false, "hahahaha")
+	continuous := flag.Bool("c", false, "")
 	privileged := flag.Bool("privileged", false, "")
 
 	flag.Usage = func() {
