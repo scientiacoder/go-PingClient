@@ -29,4 +29,15 @@ PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配�
 </details>  
   
 ## 安装
+使用git clone来安装:
+```
+git clone https://github.com/scientiacoder/go-PingClient
+cd go-PingClient/
+```
+或者使用go get安装
+```
+go get -u -v github.com/scientiacoder/go-PingClient
+```
+  
+## 使用
 
