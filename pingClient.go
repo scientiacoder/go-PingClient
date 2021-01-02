@@ -474,7 +474,7 @@ func (p *PingClient) recvICMP(
 			return nil
 		default:
 			bytes := make([]byte, 512)
-			if err := conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(time.Millisecond * 500)); err != nil {
 				return err
 			}
 			var n, ttl int
