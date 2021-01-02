@@ -424,6 +424,7 @@ func (p *PingClient) Run() error {
 			wg.Wait()
 			return nil
 		case <-interval.C:
+			fmt.Println(p.protocol)
 			if !p.Continuous && p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
 				close(p.done)
 				wg.Wait()
@@ -435,9 +436,11 @@ func (p *PingClient) Run() error {
 				fmt.Println("FATAL: ", err.Error())
 			}
 		case <-timeout.C:
-			close(p.done)
-			wg.Wait()
-			return nil
+			if All(p.PacketsSent, packetsSentFinished, p.Num) {
+				close(p.done)
+				wg.Wait()
+				return nil
+			}
 		case r := <-recv:
 			err := p.processPacket(r)
 			if err != nil {

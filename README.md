@@ -17,13 +17,14 @@ PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配�
   - [使用Yaml配置启动PingClient](#使用Yaml配置启动PingClient)
     - [配置ping单一IP地址或者URL](#配置ping单一IP地址或者URL)
     - [配置同时ping多个IP地址或者URL](#配置同时ping多个IP地址或者URL)
-    - [配置同时使用多个PingClient](#标题)
+    - [配置同时使用多个PingClient](#配置同时使用多个PingClient)
   - [更多用例，请参考config.example.yaml文件](./config.example.yaml)
   - 提示: 如果需要同时ping大量地址, 请注释或者删除cmd/ping.go里面OnRecv和OnFinish相关fmt打印信息, 以免在控制台打印大量日志
-  - [使用命令行启动PingClient](#标题)
-    - [命令行ping单一IP地址或者URL](#标题)
-    - [命令行同时ping多个IP地址或者URL](#标题)
-  - [程序内引用PingClient并启动](#标题)
+  - [使用命令行启动PingClient](#使用命令行启动PingClient)
+    - [命令行ping单一IP地址或者URL](#命令行ping单一IP地址或者URL)
+    - [命令行同时ping多个IP地址或者URL](#命令行同时ping多个IP地址或者URL)
+    - [命令行ping使用ICMP原生socket](#命令行ping使用ICMP原生socket)
+  - [程序内引用PingClient并启动](#程序内引用PingClient并启动)
 - [支持的操作系统](#定义)
 - [TODO List](#定义)
 - [贡献](#定义)
@@ -218,4 +219,50 @@ go run cmd/ping.go config.yaml
 -c 表示continuous, 如果启动命令带有-c 则会一直ping下去直到Ctrl+c终止 忽略要发送的包数量
 -privileged 表示是否使用ICMP原生socket, 需要root权限，默认是使用的udp封装的而不是原生socket -privileged启动使用原生socket
 ```
+<details open>
+<summary>展开使用Yaml配置启动PingClient</summary>  
+
 #### 命令行ping单一IP地址或者URL
+如果想ping github.com 6次, 时间间隔为1s, 运行:
+```
+go run cmd/ping.go -n 6 -i 1s github.com
+```
+该命令中github.com可改为任意**IP地址**
+输出为:
+```
+PING github.com 13.237.44.5:
+24 bytes from 13.237.44.5: icmp_seq=4722 time=35.127904ms ttl=41
+24 bytes from 13.237.44.5: icmp_seq=4723 time=36.252251ms ttl=41
+24 bytes from 13.237.44.5: icmp_seq=4724 time=29.305253ms ttl=41
+24 bytes from 13.237.44.5: icmp_seq=4725 time=37.577805ms ttl=41
+24 bytes from 13.237.44.5: icmp_seq=4726 time=45.584345ms ttl=41
+24 bytes from 13.237.44.5: icmp_seq=4727 time=33.345722ms ttl=41
+
+--- github.com 13.237.44.5 ping statistics ---
+6 packets transmitted, 6 packets received, 0% packet loss
+round-trip min/avg/max/stddev = 29.305253ms/36.19888ms/45.584345ms/4.946393ms
+```
+如果想持续ping github.com, 时间间隔为1s(Ctrl+c终止), 运行:
+```
+go run cmd/ping.go -i 1s -c github.com
+```
+  
+#### 命令行同时ping多个IP地址或者URL
+只需将多个IP地址或者URL放在命令最后即可，运行:
+```
+go run cmd/ping.go -i 1s -c github.com golang.org 13.237.44.5
+```
+
+#### 命令行ping使用ICMP原生socket
+首先确认go get在root用户的PATH下也安装了PingClient包
+```
+sudo go get -u -v github.com/scientiacoder/PingClient
+```
+之后即可sudo运行```-privileged```选项
+```
+sudo go run cmd/ping.go -i 1s -privileged -c github.com
+```
+  
+</details>
+  
+### 程序内引用PingClient并启动

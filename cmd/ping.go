@@ -34,7 +34,7 @@ Examples:
     ping -t 10s www.github.com
 
     # Send a privileged raw ICMP ping
-    sudo ping --privileged www.github.com
+    sudo ping -privileged www.github.com
 `
 
 // run with config yaml file
@@ -98,8 +98,11 @@ func runWithYaml() {
 // run with cmd flags
 func runWithCmd(timeout *time.Duration, interval *time.Duration, num *int,
 	continuous *bool, privileged *bool) {
+	var err error
 	pingClient := ping.New()
-	err := pingClient.Add(flag.Arg(0))
+	for i := 0; i < flag.NArg(); i++ {
+		err = pingClient.Add(flag.Arg(i))
+	}
 	if err != nil {
 		log.Fatalf("%s", err)
 		return
