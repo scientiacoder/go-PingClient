@@ -34,15 +34,16 @@ PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配�
 </details>  
   
 ## 安装
-使用git clone来安装:
+使用go get安装:
+```
+go get -u -v github.com/scientiacoder/go-PingClient
+```
+使用git clone下载到本地:
 ```
 git clone https://github.com/scientiacoder/go-PingClient
 cd go-PingClient/
 ```
-或者使用go get安装:
-```
-go get -u -v github.com/scientiacoder/go-PingClient
-```
+
   
 ## 运行
 
@@ -338,6 +339,12 @@ sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
 否则的话可能会出现以下socket错误因为Linux桌面版做了一些限制:
 ```
 socket: permission denied
+```
+  
+### Mac OSX
+可直接运行
+```
+go run cmd/ping.go config.yaml
 ```
   
 ### Windows

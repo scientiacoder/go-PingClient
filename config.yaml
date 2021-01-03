@@ -1,14 +1,12 @@
 app:
   pingClient1:
     interval:
-      200   # ping发包的时间间隔,单位毫秒
+      200  # in milliseconds ping发包的时间间隔,单位毫秒
     timeout:
-      5000 # ping如果超时会在经过这个时间后自动退出，单位毫秒
+      5000 # in milliseconds ping如果超时会在经过这个时间后自动退出，单位毫秒
     ips:
-      220.181.38.148
-      13.237.44.5
+      8.8.8.8
     urls:
       github.com
-      golang.org
     num:
-      5 # ping每个地址发包的次数
+      5 # number of packets send ping每个地址发包的次数
