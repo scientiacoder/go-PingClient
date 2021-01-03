@@ -1,6 +1,9 @@
 // Package pingclient is a simple but powerful ICMP echo (ping) library.
+// Inspired by go-fastping and go-ping
 //
 // Here is a very simple example that sends and receives three packets:
+//
+//	import ping "github.com/scientiacoder/PingClient"
 //
 //	pingClients, err := ping.InitWithYAMLFile("config.yaml")
 //	if err != nil {
@@ -21,10 +24,11 @@
 //		}
 //	}
 //
-// Here is an example that emulates the traditional UNIX ping command:
+// Here is an example that pings github.com and 8.8.8.8 command:
 //
 // pingClient := ping.New()
 // pingClient.Add("github.com")
+// pingClient.Add("8.8.8.8")
 //
 // // Listen for Ctrl-C.
 // c := make(chan os.Signal, 1)
@@ -61,7 +65,7 @@
 // If it receives a response, it calls the OnRecv callback. When it's finished,
 // it calls the OnFinish callback.
 //
-// For a full ping example, see "cmd/ping/ping.go".
+// For a full ping example, see "cmd/ping.go".
 //
 package pingclient
 
