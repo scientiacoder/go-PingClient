@@ -223,7 +223,7 @@ go run cmd/ping.go config.yaml
 -privileged 表示是否使用ICMP原生socket, 需要root权限，默认是使用的udp封装的而不是原生socket -privileged启动使用原生socket
 ```
 <details close>
-<summary>展开使用Yaml配置启动PingClient</summary>  
+<summary>展开使用命令行启动PingClient</summary>  
 
 #### 命令行ping单一IP地址或者URL
 如果想ping github.com 6次, 时间间隔为1s, 运行:
