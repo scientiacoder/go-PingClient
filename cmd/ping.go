@@ -15,26 +15,26 @@ import (
 var usage = `
 PingClient Usage:
 
-    ping [-n num] [-i interval] [-t timeout] [-c continuous] [--privileged] host
+    go run cmd/ping.go [-n num] [-i interval] [-t timeout] [-c continuous] [--privileged] host
 
 Examples:
     # ping with config yaml file
-    ping config.yaml
+    go run cmd/ping.go config.yaml
 
     # ping github continuously
-    ping -c www.github.com
+    go run cmd/ping.go -c www.github.com
 
     # ping github 5 times
-    ping -n 5 www.github.com
+    go run cmd/ping.go -n 5 www.github.com
 
     # ping github 5 times at 500ms intervals
-    ping -n 5 -i 500ms www.github.com
+    go run cmd/ping.go -n 5 -i 500ms www.github.com
 
     # ping github for 10 seconds
-    ping -t 10s www.github.com
+    go run cmd/ping.go -t 10s www.github.com
 
     # Send a privileged raw ICMP ping
-    sudo ping -privileged www.github.com
+    sudo go run cmd/ping.go -privileged www.github.com
 `
 
 // run with config yaml file

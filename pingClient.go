@@ -366,6 +366,7 @@ func (p *PingClient) Run() error {
 	var err error
 	p.ipVersionCheck()
 	p.initPacketsConfig()
+	fmt.Println(p.protocol)
 
 	if p.hasIPv4 {
 		if conn, err = p.listen(ipv4Proto[p.protocol]); err != nil {

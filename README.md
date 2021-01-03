@@ -1,4 +1,5 @@
-# PingClient
+<div align=center><img src="./logo.png"/></div>
+  
 PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配置ping相关的参数并且可同时设置多个IP地址或者是URL，以及包含ping相关的数据分析如RTT(Round-trip time)等。Inspired by [go-fastping](https://github.com/tatsushid/go-fastping) and [go-ping](https://github.com/go-ping/ping) 欢迎```PR```, ```Star```, ```Issue```  
 
 **主要功能**:
@@ -52,7 +53,7 @@ go get -u -v github.com/scientiacoder/go-PingClient
 #### 配置ping单一IP地址或者URL
 假设ping IP地址220.181.38.148 5次时间间隔为200ms发一个包  
 config.yaml设置为:
-```
+```yaml
 app:
   pingClient1:
     interval:
@@ -83,7 +84,7 @@ round-trip min/avg/max/stddev = 176.11971ms/184.179906ms/192.073801ms/5.818286ms
 ```
   
 同样，如果想ping URL地址为www.github.com，只需配置config.yaml
-```
+```yaml
 app:
   pingClient1:
     interval:
@@ -114,7 +115,7 @@ round-trip min/avg/max/stddev = 36.492822ms/42.965816ms/55.602643ms/6.751356ms
   
 #### 配置同时ping多个IP地址或者URL
 同时ping多个IP地址只需配置config.yaml
-```
+```yaml
 app:
   pingClient1:
     interval:
@@ -131,7 +132,7 @@ app:
 go run cmd/ping.go config.yaml
 ```
 同时ping多个URL只需配置config.yaml的urls
-```
+```yaml
 app:
   pingClient1:
     interval:
@@ -149,7 +150,7 @@ app:
 go run cmd/ping.go config.yaml
 ```
 IP和URL混合ping
-```
+```yaml
 app:
   pingClient1:
     interval:
@@ -171,7 +172,7 @@ go run cmd/ping.go config.yaml
   
 #### 配置同时使用多个PingClient
 config.yaml:
-```
+```yaml
 app:
   pingClient1:
     interval:
@@ -255,14 +256,22 @@ go run cmd/ping.go -i 1s -c github.com golang.org 13.237.44.5
 
 #### 命令行ping使用ICMP原生socket
 首先确认go get在root用户的PATH下也安装了PingClient包
-```
+```go
 sudo go get -u -v github.com/scientiacoder/PingClient
 ```
 之后即可sudo运行```-privileged```选项
-```
+```go
 sudo go run cmd/ping.go -i 1s -privileged -c github.com
 ```
   
 </details>
   
 ### 程序内引用PingClient并启动
+在程序内引用首先确保PingClient包已装:
+```go
+go get -u -v github.com/scientiacoder/PingClient
+```
+之后可以import PingClient包
+```go
+import ping "github.com/scientiacoder/PingClient"
+```
