@@ -10,11 +10,11 @@ PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配�
   
 ## 目录
 
-<details open>
+<details close>
 <summary>展开目录简介</summary>  
 
 - [安装](#安装)
-- [使用](#使用)
+- [运行](#运行)
   - [使用Yaml配置启动PingClient](#使用Yaml配置启动PingClient)
     - [配置ping单一IP地址或者URL](#配置ping单一IP地址或者URL)
     - [配置同时ping多个IP地址或者URL](#配置同时ping多个IP地址或者URL)
@@ -26,10 +26,11 @@ PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配�
     - [命令行同时ping多个IP地址或者URL](#命令行同时ping多个IP地址或者URL)
     - [命令行ping使用ICMP原生socket](#命令行ping使用ICMP原生socket)
   - [程序内引用PingClient并启动](#程序内引用PingClient并启动)
-- [支持的操作系统](#定义)
-- [TODO List](#定义)
-- [贡献](#定义)
-- [许可协议](#定义)
+- [socket: permission denied 参考支持的操作系统](#支持的操作系统)
+- [支持的操作系统](#支持的操作系统)
+- [TODO](#TODO)
+- [贡献](#贡献)
+- [许可协议](#许可协议)
 </details>  
   
 ## 安装
@@ -43,11 +44,11 @@ cd go-PingClient/
 go get -u -v github.com/scientiacoder/go-PingClient
 ```
   
-## 使用
+## 运行
 
 ### 使用Yaml配置启动PingClient
 推荐使用Yaml文件配置启动PingClient，参见文件夹下config.yaml以及config.example.yaml  
-<details open>
+<details close>
 <summary>展开使用Yaml配置启动PingClient</summary>  
 
 #### 配置ping单一IP地址或者URL
@@ -220,7 +221,7 @@ go run cmd/ping.go config.yaml
 -c 表示continuous, 如果启动命令带有-c 则会一直ping下去直到Ctrl+c终止 忽略要发送的包数量
 -privileged 表示是否使用ICMP原生socket, 需要root权限，默认是使用的udp封装的而不是原生socket -privileged启动使用原生socket
 ```
-<details open>
+<details close>
 <summary>展开使用Yaml配置启动PingClient</summary>  
 
 #### 命令行ping单一IP地址或者URL
@@ -267,6 +268,10 @@ sudo go run cmd/ping.go -i 1s -privileged -c github.com
 </details>
   
 ### 程序内引用PingClient并启动
+  
+<details close>
+<summary>展开程序内引用PingClient并启动</summary>  
+
 在程序内引用首先确保PingClient包已装:
 ```go
 go get -u -v github.com/scientiacoder/PingClient
@@ -275,3 +280,86 @@ go get -u -v github.com/scientiacoder/PingClient
 ```go
 import ping "github.com/scientiacoder/PingClient"
 ```
+以下是一个同时ping github.com和IP 8.8.8.8, 发包时间间隔为200ms的完整示例:
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	ping "github.com/scientiacoder/PingClient"
+)
+
+func main() {
+	pingClient := ping.New()
+	err := pingClient.Add("github.com")
+	if err != nil {
+		log.Fatalf("%s", err)
+		return
+	}
+	err = pingClient.Add("8.8.8.8")
+	if err != nil {
+		log.Fatalf("%s", err)
+		return
+	}
+
+	pingClient.Interval = 200 * time.Millisecond
+	pingClient.OnRecv = func(pkt *ping.Packet) {
+		fmt.Printf("%d bytes from %s: icmp_seq=%d time=%v ttl=%v\n",
+			pkt.Nbytes, pkt.IPAddr, pkt.Seq, pkt.Rtt, pkt.Ttl)
+	}
+	pingClient.OnFinish = func(stats []*ping.Statistics) {
+		for _, stat := range stats {
+			fmt.Printf("\n--- %s %s ping statistics ---\n", stat.URL, stat.IP)
+			fmt.Printf("%d packets transmitted, %d packets received, %v%% packet loss\n",
+				stat.PacketsSent, stat.PacketsRecv, stat.PacketLoss)
+			fmt.Printf("round-trip min/avg/max/stddev = %v/%v/%v/%v\n",
+				stat.MinRtt, stat.AvgRtt, stat.MaxRtt, stat.StdDevRtt)
+		}
+	}
+
+	err = pingClient.Run()
+	if err != nil {
+		log.Fatalf("%s", err)
+		return
+	}
+}
+```
+</details>
+
+## 支持的操作系统
+### Linux
+在默认情况下，此PingClient试图发送non-Privileged(非root) Ping通过UDP，因此需要通过以下sysctl命令来设置:
+```
+sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+```
+否则的话可能会出现以下socket错误因为Linux桌面版做了一些限制:
+```
+socket: permission denied
+```
+  
+### Windows
+在Windows平台上，必须要把privileged设置为true，不管是通过Yaml, 命令行方式运行  
+如果是在程序内引用，请添加一行代码:
+```
+pingClient.SetPrivileged(true)
+```
+否则的话可能会出现以下socket错误
+```
+socket: The requested protocol has not been configured into the system, or no implementation for it exists.
+```
+  
+## TODO
+- [ ] English README  
+- [ ] IPv6 Support  
+- [ ] Unit Test  
+- [ ] Benchmark
+- [ ] OnTimeout(heartbeat check)
+  
+## 贡献
+该项目目前由[@scientiacoder](https://github.com/scientiacoder)维护，欢迎```PR```, ```Star```, ```Issue``` Welcome
+
+## 许可协议
+MIT
