@@ -3,7 +3,7 @@
 ---
   
 [![GoDoc reference example](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/scientiacoder/go-PingClient)
-[![MIT License](https://img.shields.io/apm/l/atomic-design-ui.svg?)](https://github.com/tterb/atomic-design-ui/blob/master/LICENSEs)
+[![Go Report Card](https://goreportcard.com/badge/github.com/scientiacoder/go-PingClient)](https://goreportcard.com/report/github.com/scientiacoder/go-PingClient)
   
 
 PingClient是一款基于Go语言的发送ICMP ping的库，可以自定义配置ping相关的参数并且可同时设置多个IP地址或者是URL，以及包含ping相关的数据分析如RTT(Round-trip time)等。Inspired by [go-fastping](https://github.com/tatsushid/go-fastping) and [go-ping](https://github.com/go-ping/ping) 欢迎```PR```, ```Star```, ```Issue```  
