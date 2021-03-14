@@ -1,4 +1,4 @@
-module github.com/scientiacoder/PingClient
+module github.com/scientiacoder/go-PingClient
 
 go 1.15
 
