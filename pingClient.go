@@ -428,7 +428,6 @@ func (p *PingClient) Run() error {
 			wg.Wait()
 			return nil
 		case <-interval.C:
-			fmt.Println(p.protocol)
 			if !p.Continuous && p.Num > 0 && All(p.PacketsSent, packetsSentFinished, p.Num) {
 				close(p.done)
 				wg.Wait()
@@ -509,7 +508,6 @@ func (p *PingClient) recvICMP(
 						// Read timeout
 						continue
 					} else {
-						fmt.Println("close here?")
 						close(p.done)
 						return err
 					}
