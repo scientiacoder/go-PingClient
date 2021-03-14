@@ -276,16 +276,16 @@ sudo go run cmd/ping.go -i 1s -privileged -c github.com
   
 ### 程序内引用PingClient并启动
   
-<details close>
+<details open>
 <summary>展开程序内引用PingClient并启动</summary>  
 
 在程序内引用首先确保PingClient包已装:
 ```go
-go get -u -v github.com/scientiacoder/PingClient
+go get -u -v github.com/scientiacoder/go-PingClient
 ```
 之后可以import PingClient包
 ```go
-import ping "github.com/scientiacoder/PingClient"
+import ping "github.com/scientiacoder/go-PingClient"
 ```
 以下是一个同时ping github.com和IP 8.8.8.8, 发包时间间隔为200ms的完整示例:
 ```go
@@ -296,7 +296,7 @@ import (
 	"log"
 	"time"
 
-	ping "github.com/scientiacoder/PingClient"
+	ping "github.com/scientiacoder/go-PingClient"
 )
 
 func main() {
