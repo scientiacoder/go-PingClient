@@ -96,6 +96,7 @@ const (
 var (
 	ipv4Proto = map[string]string{"icmp": "ip4:icmp", "udp": "udp4"}
 	ipv6Proto = map[string]string{"icmp": "ip6:ipv6-icmp", "udp": "udp6"}
+	globalmu  sync.RWMutex
 )
 
 // New returns a new PingClient struct pointer.
@@ -602,9 +603,13 @@ func (p *PingClient) processPacket(recv *packet) error {
 func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 	wg := new(sync.WaitGroup)
 	for _, addr := range p.IPs {
+		globalmu.RLock()
 		if !p.Continuous && p.PacketsSent[addr.IP.String()] >= p.Num {
+			globalmu.RUnlock()
 			continue
 		}
+		globalmu.RUnlock()
+
 		var cn *icmp.PacketConn
 		var typ icmp.Type
 		if isIPv4(addr.IP) {
@@ -661,7 +666,9 @@ func (p *PingClient) sendICMP(conn, conn6 *icmp.PacketConn) error {
 				}
 				break
 			}
+			globalmu.Lock()
 			p.PacketsSent[ipStr]++
+			globalmu.Unlock()
 			wg.Done()
 		}(cn, dst, ipStr, msgBytes)
 	}
@@ -681,6 +688,8 @@ func (p *PingClient) listen(netProto string) (*icmp.PacketConn, error) {
 }
 
 func (p *PingClient) initPacketsConfig() {
+	globalmu.Lock()
+	defer globalmu.Unlock()
 	for _, addr := range p.IPs {
 		p.PacketsSent[addr.IP.String()] = 0
 		p.PacketsRecv[addr.IP.String()] = 0
@@ -691,6 +700,8 @@ func (p *PingClient) initPacketsConfig() {
 
 // All checks whether all the map entry satisfies the function f
 func All(m map[string]int, f func(int, int) bool, num int) bool {
+	globalmu.RLock()
+	defer globalmu.RUnlock()
 	for _, val := range m {
 		if !f(val, num) {
 			return false
@@ -729,7 +740,9 @@ func (p *PingClient) Statistics() []*Statistics {
 // StatisticsPerIP returns the statistics of the Ping info to the given IP address.
 func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 	var ipStr string = ipAddr.IP.String()
+	globalmu.RLock()
 	loss := float64(p.PacketsSent[ipStr]-p.PacketsRecv[ipStr]) / float64(p.PacketsSent[ipStr]) * 100
+	globalmu.Unlock()
 	var min, max, total time.Duration
 	if len(p.rtts[ipStr]) > 0 {
 		min = p.rtts[ipStr][0]
@@ -744,6 +757,7 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 		}
 		total += rt
 	}
+	globalmu.RLock()
 	s := Statistics{
 		PacketsSent: p.PacketsSent[ipStr],
 		PacketsRecv: p.PacketsRecv[ipStr],
@@ -755,6 +769,7 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 		MaxRtt:      max,
 		MinRtt:      min,
 	}
+	globalmu.RUnlock()
 	if len(p.rtts[ipStr]) > 0 {
 		s.AvgRtt = total / time.Duration(len(p.rtts[ipStr]))
 		var sumsquares time.Duration
