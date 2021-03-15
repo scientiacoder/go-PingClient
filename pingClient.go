@@ -742,7 +742,7 @@ func (p *PingClient) StatisticsPerIP(ipAddr *net.IPAddr) *Statistics {
 	var ipStr string = ipAddr.IP.String()
 	globalmu.RLock()
 	loss := float64(p.PacketsSent[ipStr]-p.PacketsRecv[ipStr]) / float64(p.PacketsSent[ipStr]) * 100
-	globalmu.Unlock()
+	globalmu.RUnlock()
 	var min, max, total time.Duration
 	if len(p.rtts[ipStr]) > 0 {
 		min = p.rtts[ipStr][0]
